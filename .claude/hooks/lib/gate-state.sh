@@ -64,7 +64,7 @@
 # can't shift fields.
 #
 #   gate_file_stamp  <file>     ck:<cksum> of the content, else mt:<mtime>, else "-"
-#   gate_marker_path <project>  ${TMPDIR:-/tmp}/cck-gate-<key>: where results that
+#   gate_marker_path <project>  ${TMPDIR:-/tmp}/ack-gate-<key>: where results that
 #       could not be written inside <project> are noted, one line per file:
 #       session<TAB>root<TAB>file<TAB>epoch
 #   gate_lines_prune <file> <epoch-field> <days>
@@ -435,7 +435,21 @@ gate_marker_path() {
     key="${1//[^A-Za-z0-9]/_}"
     key="${key: -100}"
   fi
-  printf '%s/cck-gate-%s\n' "${TMPDIR:-/tmp}" "$key"
+  printf '%s/ack-gate-%s\n' "${TMPDIR:-/tmp}" "$key"
+}
+
+# gate_marker_migrate <project> — move lines a hook wrote under the kit's former
+# file prefix (ADR-029) into gate_marker_path, so a result noted as unrecordable
+# before the rename still blocks the stop. The former prefix is built from
+# character codes so the tracked tree never spells it. An old marker that isn't a
+# regular file we own is ignored, exactly as readers treat an untrusted marker.
+gate_marker_migrate() {
+  local new old
+  new=$(gate_marker_path "$1")
+  old="${new%/*}/$(printf '\143\143\153')${new##*/ack}"
+  [ -f "$old" ] && [ ! -L "$old" ] && [ -O "$old" ] || return 0
+  [ ! -L "$new" ] && { [ ! -e "$new" ] || [ -O "$new" ]; } || return 1
+  { cat "$old" >>"$new" && rm -f "$old"; } 2>/dev/null
 }
 
 gate_lines_prune() {

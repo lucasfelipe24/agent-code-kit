@@ -1,6 +1,6 @@
 {
   "env": {
-    "CCK_PROTECT_BUILD_CONFIGS": "1"
+    "ACK_PROTECT_BUILD_CONFIGS": "1"
   },
   "permissions": {
     "allow": [

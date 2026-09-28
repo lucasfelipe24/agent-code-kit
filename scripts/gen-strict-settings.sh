@@ -12,7 +12,7 @@
 # build if the committed file drifts from base + delta.
 #
 # The strict delta (kept in sync with agent_docs/hooks.md and tasks/decisions.md):
-#   1. env.CCK_PROTECT_BUILD_CONFIGS = "1"  — hard-block build-config edits
+#   1. env.ACK_PROTECT_BUILD_CONFIGS = "1"  — hard-block build-config edits
 #   2. UserPromptSubmit  += skill-extract-reminder.sh
 #   3. PostToolUse (Edit|Write|NotebookEdit) += auto-lint.sh, auto-format.sh,
 #      skill-compliance.sh — inserted before quality-gate.sh so the gate still
@@ -51,7 +51,7 @@ with open(sys.argv[1]) as fh:
     base = json.load(fh)
 
 # 1. env flag first, preserving any existing env keys.
-strict = {"env": {**base.get("env", {}), "CCK_PROTECT_BUILD_CONFIGS": "1"}}
+strict = {"env": {**base.get("env", {}), "ACK_PROTECT_BUILD_CONFIGS": "1"}}
 for key, value in base.items():
     if key == "env":
         continue

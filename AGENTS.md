@@ -203,7 +203,8 @@ Key design principle: CLAUDE.md acts as a **logical directory** — it contains 
 │   ├── gen-agents-md.sh           # Generates cross-tool AGENTS.md from kit sources
 │   ├── build-skills.sh            # Builds SKILL.md from .tmpl templates + shared blocks
 │   ├── lesson-graph.sh            # Parses typed lesson frontmatter (supersedes/applies_to/contradicts/related_decisions); validates the graph and rewrites the auto sections in tasks/lessons/_index.md
-│   └── run-bench.sh               # KitBench runner — executes every scenario in bench/scenarios/ in an isolated temp dir
+│   ├── run-bench.sh               # KitBench runner — executes every scenario in bench/scenarios/ in an isolated temp dir
+│   └── check-prefix-residue.sh    # Fails on the former configuration prefix in any tracked path/content (ADR-029); run by sync-manifest.sh --check
 │
 ├── bench/                         # KitBench — reproducible eval harness for the kit's deterministic-enforcement claims
 │   ├── README.md                  # Corpus overview, how to add scenarios

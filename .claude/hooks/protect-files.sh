@@ -284,18 +284,23 @@ while [ "$i" -lt "$SH_NSEG" ]; do
   fi
   if sh_git_segment "$i"; then
     DIR="$SEG_DIR"
+    GIT_CWD_DYNAMIC=0
+    case "$SH_GIT_CWD" in
+      "") ;;
+      *'$'*|*'`'*) GIT_CWD_DYNAMIC=1 ;;
+      /*) DIR="$SH_GIT_CWD" ;;
+      *) DIR="$DIR/$SH_GIT_CWD" ;;
+    esac
+    # Only staging commands fail closed on a directory the hook can't resolve;
+    # a read-only `git -C "$dir" status` / `log` stays allowed.
     case "$SH_GIT_SUB" in
       add|commit)
         if [ "$DYNAMIC_CWD" = 1 ] || [ "$SEG_DIR_KNOWN" = 0 ]; then
           unsafe_stage "the command changes git's working directory in a way the safety hook cannot resolve"
+        elif [ "$GIT_CWD_DYNAMIC" = 1 ]; then
+          unsafe_stage "git -C uses a dynamic directory the safety hook cannot resolve"
         fi
         ;;
-    esac
-    case "$SH_GIT_CWD" in
-      "") ;;
-      /*) DIR="$SH_GIT_CWD" ;;
-      *'$('*|*'`'*|*'$'*) unsafe_stage "git -C uses a dynamic directory the safety hook cannot resolve" ;;
-      *) DIR="$DIR/$SH_GIT_CWD" ;;
     esac
     case "$SH_GIT_SUB" in
       add)

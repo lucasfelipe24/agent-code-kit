@@ -13,11 +13,11 @@
 #      or notify-send (Linux) when present. Silent no-op if none is installed
 #      (e.g. CI, headless servers) — never an error.
 #   2. Optional remote push. OFF by default. Fires only when you opt in via env:
-#        CCK_NOTIFY_NTFY_URL       full ntfy topic URL, e.g. https://ntfy.sh/my-topic
-#        CCK_NOTIFY_PUSHOVER_TOKEN + CCK_NOTIFY_PUSHOVER_USER   Pushover app/user keys
+#        ACK_NOTIFY_NTFY_URL       full ntfy topic URL, e.g. https://ntfy.sh/my-topic
+#        ACK_NOTIFY_PUSHOVER_TOKEN + ACK_NOTIFY_PUSHOVER_USER   Pushover app/user keys
 #      With none set, no network call is ever made.
 #
-#   CCK_NOTIFY_DRY_RUN=1  suppresses the real desktop popup and, instead of
+#   ACK_NOTIFY_DRY_RUN=1  suppresses the real desktop popup and, instead of
 #                         calling curl, prints the remote target(s) to stderr —
 #                         for offline testing and config checks.
 #
@@ -49,7 +49,7 @@ MESSAGE=${MESSAGE//\"/}
 MESSAGE=${MESSAGE//$'\n'/ }
 MESSAGE=${MESSAGE:0:200}
 
-DRY_RUN="${CCK_NOTIFY_DRY_RUN:-}"
+DRY_RUN="${ACK_NOTIFY_DRY_RUN:-}"
 
 # --- 1. Local desktop notification (silent if no notifier is present) --------
 # Dry-run suppresses the real popup so tests/config-checks have no side effects.
@@ -66,25 +66,25 @@ fi
 # --- 2. Optional remote push (opt-in via env; off by default) ----------------
 push_remote() { # only reached when curl exists or we're in dry-run
   # ntfy: POST the message body to the configured topic URL.
-  if [ -n "${CCK_NOTIFY_NTFY_URL:-}" ]; then
+  if [ -n "${ACK_NOTIFY_NTFY_URL:-}" ]; then
     if [ -n "$DRY_RUN" ]; then
-      printf 'notify-waiting: ntfy -> %s\n' "$CCK_NOTIFY_NTFY_URL" >&2
+      printf 'notify-waiting: ntfy -> %s\n' "$ACK_NOTIFY_NTFY_URL" >&2
     else
       curl -fsS -m 5 \
         -H "Title: $TITLE" \
         -d "$MESSAGE" \
-        "$CCK_NOTIFY_NTFY_URL" &>/dev/null || true
+        "$ACK_NOTIFY_NTFY_URL" &>/dev/null || true
     fi
   fi
 
   # Pushover: needs both the application token and the user key.
-  if [ -n "${CCK_NOTIFY_PUSHOVER_TOKEN:-}" ] && [ -n "${CCK_NOTIFY_PUSHOVER_USER:-}" ]; then
+  if [ -n "${ACK_NOTIFY_PUSHOVER_TOKEN:-}" ] && [ -n "${ACK_NOTIFY_PUSHOVER_USER:-}" ]; then
     if [ -n "$DRY_RUN" ]; then
       printf 'notify-waiting: pushover -> api.pushover.net\n' >&2
     else
       curl -fsS -m 5 \
-        --form-string "token=$CCK_NOTIFY_PUSHOVER_TOKEN" \
-        --form-string "user=$CCK_NOTIFY_PUSHOVER_USER" \
+        --form-string "token=$ACK_NOTIFY_PUSHOVER_TOKEN" \
+        --form-string "user=$ACK_NOTIFY_PUSHOVER_USER" \
         --form-string "title=$TITLE" \
         --form-string "message=$MESSAGE" \
         https://api.pushover.net/1/messages.json &>/dev/null || true
@@ -92,7 +92,7 @@ push_remote() { # only reached when curl exists or we're in dry-run
   fi
 }
 
-if [ -n "${CCK_NOTIFY_NTFY_URL:-}" ] || { [ -n "${CCK_NOTIFY_PUSHOVER_TOKEN:-}" ] && [ -n "${CCK_NOTIFY_PUSHOVER_USER:-}" ]; }; then
+if [ -n "${ACK_NOTIFY_NTFY_URL:-}" ] || { [ -n "${ACK_NOTIFY_PUSHOVER_TOKEN:-}" ] && [ -n "${ACK_NOTIFY_PUSHOVER_USER:-}" ]; }; then
   if [ -n "$DRY_RUN" ] || command -v curl &>/dev/null; then
     push_remote
   fi

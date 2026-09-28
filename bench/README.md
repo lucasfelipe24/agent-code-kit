@@ -44,7 +44,7 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s20 | `subagent-pre-logs-invocation` | `subagent-pre.sh` (PreToolUse on Task) appends an open telemetry row to `.hook-state/agent-invocations.jsonl` |
 | s21 | `subagent-post-closes-invocation` | `subagent-post.sh` (PostToolUse on Task) closes the latest open telemetry row with `finished_at` + `duration_seconds` |
 | s22 | `session-start-prior-session-verdict-kept` | A prior session's failing verdict doesn't block a new session's stop, and `session-start.sh` keeps it — the prior session's own stop still blocks *(multi-step)* |
-| s23 | `protect-changes-build-config-blocks-in-strict` | `CCK_PROTECT_BUILD_CONFIGS=1` + edit `tsconfig.json` → exit 2 |
+| s23 | `protect-changes-build-config-blocks-in-strict` | `ACK_PROTECT_BUILD_CONFIGS=1` + edit `tsconfig.json` → exit 2 |
 | s24 | `protect-changes-build-config-warns-in-standard` | Edit `tsconfig.json` without the env → exit 0, advice as PreToolUse `additionalContext` on stdout (no block) |
 | s25 | `protect-changes-allows-ui-component` | Edit `src/components/auth/LoginForm.tsx` → not blocked (UI ≠ auth logic) |
 | s26 | `block-dangerous-rm-system-path` | `sudo rm -rf /etc/nginx` → exit 2 (system path) |
@@ -74,7 +74,7 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s50 | `session-start-no-top-rules` | Empty Top Rules section → no "Top rules" block in the `hookSpecificOutput` context, not the "*No top rules yet*" placeholder |
 | s51 | `quality-gate-worktree-isolation` | A broken edit inside a git worktree is stored in that worktree (not the main checkout) and still blocks the session's stop from either checkout; another session's stop is allowed *(multi-step, real `git worktree add`)* |
 | s52 | `quality-gate-fix-unblocks-stop` | Broken edit → stop blocked → file fixed → gate passes → stop allowed *(multi-step)* |
-| s53 | `quality-gate-timeout-kills-check` | A hanging declared check is killed at `CCK_QUALITY_GATE_TIMEOUT` together with its background child → status `timeout`, no process left running |
+| s53 | `quality-gate-timeout-kills-check` | A hanging declared check is killed at `ACK_QUALITY_GATE_TIMEOUT` together with its background child → status `timeout`, no process left running |
 | s54 | `quality-gate-unrelated-pass-keeps-failure` | `a.py` fails, then `b.py` passes → the verdict stays `failed` and stop is blocked on `a.py` *(multi-step)* |
 | s55 | `stop-gate-reverifies-stale-file` | A passing file changes without an Edit → stop re-runs its check: broken content blocks, fixed content is allowed *(multi-step)* |
 | s56 | `compaction-keeps-failing-verdict` | `session-start` with `source: compact` keeps the per-file state → a failing file still blocks stop *(multi-step)* |
@@ -114,7 +114,7 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s90 | `session-start-keeps-other-sessions-failures` | Session B's SessionStart keeps session A's failure: B's stop is allowed, A's is blocked *(multi-step)* |
 | s91 | `quality-gate-leftover-not-waited-for` | A finished check leaves a SIGTERM-ignoring process: the hook doesn't wait out a kill grace (the group is killed only on timeout) |
 | s92 | `quality-gate-sigterm-ends-check` | SIGTERM to the gate mid-check ends the check and leaves no output file; stop re-verifies the run |
-| s93 | `stop-gate-reverify-budget` | Two stale files, a 3s check, `CCK_STOP_REVERIFY_BUDGET=2`: re-verification stops at the budget and both files block *(multi-step)* |
+| s93 | `stop-gate-reverify-budget` | Two stale files, a 3s check, `ACK_STOP_REVERIFY_BUDGET=2`: re-verification stops at the budget and both files block *(multi-step)* |
 | s94 | `stop-gate-no-python-mixed-sessions-fail-closed` | Without python3 or jq, a failing record with no session (or `"-"`) alongside another session's passing record still blocks *(multi-step)* |
 | s95 | `session-start-clears-pre-v2-summary` | A pre-v2 `last_quality_gate.json` (no session_id) doesn't block a fresh session's first stop *(multi-step)* |
 | s96 | `quality-gate-sigterm-spares-caller` | SIGTERM to the gate ends only the check: the caller's process group, which the hook shares, survives *(multi-step)* |
@@ -177,6 +177,8 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s158 | `glob-guidance-migrations-guard` | Django and Rails still receive the nudge; a neighbouring DbContext does not |
 | s159 | `block-dangerous-blocks-hookspath-env-config` | Inline or inherited `GIT_CONFIG_KEY_n=core.hooksPath` on a hook-running Git command → exit 2; unrelated config stays allowed |
 | s160 | `protect-files-blocks-pathspec-files-and-unknown-cwd` | Pathspec files and unresolved cwd-changing shell constructs fail closed; literal safe paths remain allowed |
+| s161 | `stop-gate-carries-over-former-prefix-marker` | A marker written under the kit's former file prefix (ADR-029) is moved to the `ack-gate-*` marker and still blocks the stop |
+| s162 | `protect-files-allows-read-only-git-with-dynamic-dir` | `git -C "$VAR" status` / `log` and a dynamic `cd` before a read stay allowed; the same with `add` still blocks |
 
 Every blocking scenario for `protect-files`, `block-dangerous-commands`, `branch-protect`, `conventional-commit` and `loop-detect` asserts `stdout_empty` and `stderr_starts_with: "BLOCKED"`: on exit 2 Claude Code feeds the agent stderr, so a reason written to stdout never reaches it.
 

@@ -18,7 +18,7 @@
 #
 #   typecheck, lint      FAST — the per-edit quality gate runs these
 #   test, build, smoke   FULL — /ship and the qa-reviewer; never run per edit
-#   timeout              seconds the per-edit check may run (CCK_QUALITY_GATE_TIMEOUT wins)
+#   timeout              seconds the per-edit check may run (ACK_QUALITY_GATE_TIMEOUT wins)
 #   "//..." keys         comments
 #
 # An absent key means "not declared — auto-detect". A key set to "" means "this

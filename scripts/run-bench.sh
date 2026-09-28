@@ -152,7 +152,12 @@ def run_hook(step, workdir, base_env=None):
     # Apply scenario env overrides. A multi-step scenario's top-level env applies
     # to every step; a step's own env wins. {PATH} expands to the runner's PATH,
     # so a scenario can put a fake tool ahead of the real one.
+    # A null value unsets the variable, so the caller's own environment can't
+    # leak into a negative scenario (e.g. an ACK_* the developer exported).
     for k, v in {**(base_env or {}), **(step.get("env") or {})}.items():
+        if v is None:
+            env.pop(k, None)
+            continue
         env[k] = str(substitute(v, workdir)).replace("{PATH}", os.environ.get("PATH", ""))
     cwd = os.path.join(workdir, step["cwd"]) if step.get("cwd") else workdir
     start = time.monotonic()

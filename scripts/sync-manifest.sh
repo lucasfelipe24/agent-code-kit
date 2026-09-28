@@ -61,6 +61,10 @@ if [ "$CHECK_ONLY" -eq 1 ]; then
     exit 1
   fi
   echo ".kit-manifest is in sync with the directory tree."
+  # The shipped tree must not carry the kit's former configuration prefix
+  # (ADR-029). Checked here because CI's Manifest Sync job and `npm run check`
+  # both run this --check.
+  bash "$KIT_ROOT/scripts/check-prefix-residue.sh" || exit 1
   exit 0
 fi
 

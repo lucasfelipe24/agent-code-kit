@@ -218,16 +218,20 @@ convert_aider() {
 # Codex (.agents/skills or ~/.codex/skills), Zed (.agents/skills), and Amp all read
 # this layout. We drop the Claude-specific `user-invocable:` frontmatter key and
 # keep name/description (the cross-tool spec). Previously-generated skill dirs are
-# swept by marker (.cck-generated) so removed/renamed skills don't linger;
+# swept by marker (.ack-generated) so removed/renamed skills don't linger;
 # user-authored skills in .agents/skills (without the marker) are left untouched.
 convert_skills() {
   local outdir=".agents/skills"
   mkdir -p "$outdir"
 
-  local d
+  # A directory exported before the kit's prefix rename (ADR-029) carries the
+  # former marker; it is still ours to sweep. Built from character codes so the
+  # tracked tree never spells the former prefix.
+  local legacy_marker d
+  legacy_marker=".$(printf '\143\143\153')-generated"
   for d in "$outdir"/*/; do
     [ -d "$d" ] || continue
-    [ -f "${d}.cck-generated" ] && rm -rf "$d"
+    if [ -f "${d}.ack-generated" ] || [ -f "${d}${legacy_marker}" ]; then rm -rf "$d"; fi
   done
 
   local count=0 skill name dest
@@ -238,10 +242,10 @@ convert_skills() {
     dest="$outdir/$name"
     mkdir -p "$dest"
     cp -R "$skill". "$dest/"                # mirror SKILL.md + any resource files/subdirs
-    rm -f "$dest/.cck-generated"            # drop a stale marker if the source ever had one
+    rm -f "$dest/.ack-generated" "$dest/$legacy_marker"   # drop stale markers the source may carry
     # Strip the Claude-specific user-invocable key from the exported SKILL.md.
     grep -v '^user-invocable:' "$dest/SKILL.md" > "$dest/SKILL.md.tmp" && mv "$dest/SKILL.md.tmp" "$dest/SKILL.md"
-    : > "$dest/.cck-generated"
+    : > "$dest/.ack-generated"
     count=$((count + 1))
   done
   echo "  Skills: $outdir/ ($count skills — read by Codex, Zed, Amp)"

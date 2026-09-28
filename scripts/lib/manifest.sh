@@ -22,10 +22,10 @@
 #
 
 # Guard against double-sourcing (install.sh also defines MANIFEST_FILE).
-if [ -n "${_CCK_MANIFEST_LIB_LOADED:-}" ]; then
+if [ -n "${_ACK_MANIFEST_LIB_LOADED:-}" ]; then
   return 0 2>/dev/null || true
 fi
-_CCK_MANIFEST_LIB_LOADED=1
+_ACK_MANIFEST_LIB_LOADED=1
 
 MANIFEST_FILE=".kit-manifest"
 

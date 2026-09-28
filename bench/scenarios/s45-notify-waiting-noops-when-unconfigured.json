@@ -1,7 +1,7 @@
 {
   "name": "s45-notify-waiting-noops-when-unconfigured",
   "hook": ".claude/hooks/notify-waiting.sh",
-  "env": { "CCK_NOTIFY_DRY_RUN": "1" },
+  "env": { "ACK_NOTIFY_DRY_RUN": "1" },
   "payload": {
     "message": "Claude needs your permission to use Bash"
   },

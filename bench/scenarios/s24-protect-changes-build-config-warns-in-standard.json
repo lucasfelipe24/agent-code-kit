@@ -3,11 +3,20 @@
   "hook": ".claude/hooks/protect-changes.sh",
   "payload": {
     "tool_name": "Edit",
-    "tool_input": { "file_path": "{TMPROOT}/tsconfig.json" }
+    "tool_input": {
+      "file_path": "{TMPROOT}/tsconfig.json"
+    }
   },
   "expect": {
     "exit_code": 0,
-    "stdout_contains": ["\"additionalContext\"", "heads-up", "build config"]
+    "stdout_contains": [
+      "\"additionalContext\"",
+      "heads-up",
+      "build config"
+    ]
   },
-  "notes": "In the standard profile (no CCK_PROTECT_BUILD_CONFIGS) a build-config edit advises but does NOT block — reduces out-of-box friction. The advice is PreToolUse additionalContext on stdout: stderr at exit 0 never reaches Claude."
+  "notes": "In the standard profile (no ACK_PROTECT_BUILD_CONFIGS) a build-config edit advises but does NOT block \u2014 reduces out-of-box friction. The advice is PreToolUse additionalContext on stdout: stderr at exit 0 never reaches Claude.",
+  "env": {
+    "ACK_PROTECT_BUILD_CONFIGS": null
+  }
 }

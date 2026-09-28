@@ -1,0 +1,48 @@
+{
+  "name": "s161-stop-gate-carries-over-former-prefix-marker",
+  "setup_files": {
+    "src/app.py": "print(1)\n"
+  },
+  "setup_commands": [
+    "mkdir -p tmp && k=$(printf '%s' '{TMPROOT}' | cksum | cut -d' ' -f1) && printf '%s\\t%s\\t%s\\t%s\\n' - '{TMPROOT}' '{TMPROOT}/src/app.py' \"$(date +%s)\" > \"tmp/$(printf '\\143\\143\\153')-gate-$k\""
+  ],
+  "steps": [
+    {
+      "hook": ".claude/hooks/stop-gate.sh",
+      "env": {
+        "TMPDIR": "{TMPROOT}/tmp"
+      },
+      "payload": {
+        "session_id": "kitbench",
+        "hook_event_name": "Stop",
+        "cwd": "{TMPROOT}"
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_contains": [
+          "app.py"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/stop-gate.sh",
+      "env": {
+        "TMPDIR": "{TMPROOT}/tmp"
+      },
+      "payload": {
+        "session_id": "kitbench",
+        "hook_event_name": "Stop",
+        "cwd": "{TMPROOT}"
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_contains": [
+          "app.py"
+        ]
+      }
+    }
+  ],
+  "notes": "A result the quality gate couldn't record is noted in a marker under TMPDIR. A marker written under the kit's former file prefix (ADR-029) must still block the stop: stop-gate carries it over to the ack-gate marker (twice: the block survives the move). Without the carry-over the old marker was ignored and the stop passed. The former prefix is built at runtime, so the tracked tree never spells it."
+}

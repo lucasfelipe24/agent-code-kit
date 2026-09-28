@@ -2,7 +2,7 @@
   "name": "s74-quality-gate-leftover-process-bounded",
   "hook": ".claude/hooks/quality-gate.sh",
   "env": {
-    "CCK_QUALITY_GATE_TIMEOUT": "2"
+    "ACK_QUALITY_GATE_TIMEOUT": "2"
   },
   "setup_files": {
     ".claude/commands.json": "{\"lint\": \"bash -c 'exec -a kitbench-hold-{TMPROOT} sleep 15' & true\"}",

@@ -1,0 +1,82 @@
+{
+  "name": "s162-protect-files-allows-read-only-git-with-dynamic-dir",
+  "setup_files": {
+    "sub/config/.env": "API_KEY=kitbench-not-a-real-key\n"
+  },
+  "setup_commands": [
+    "git init -q . && git init -q sub"
+  ],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "for p in sub; do git -C \"$p\" status --short; done"
+        }
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true,
+        "stderr_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "D=sub; git -C \"$D\" log --oneline -1"
+        }
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true,
+        "stderr_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd \"$X\" && git status"
+        }
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true,
+        "stderr_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "D=sub; git -C \"$D\" add ."
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED"
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd \"$X\" && git add ."
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED"
+      }
+    }
+  ],
+  "notes": "False positive from s160's fail-closed rule: a git -C with a dynamic directory blocked read-only commands (status, log). Only staging (add, commit) must fail closed on a directory the hook can't resolve; reads stay allowed."
+}

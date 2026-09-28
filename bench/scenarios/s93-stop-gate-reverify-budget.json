@@ -43,7 +43,7 @@
         "src/b.py": "b = 2\n"
       },
       "env": {
-        "CCK_STOP_REVERIFY_BUDGET": "2"
+        "ACK_STOP_REVERIFY_BUDGET": "2"
       },
       "payload": {},
       "expect": {

@@ -8,7 +8,7 @@
   "setup_commands": [
     "chmod +x minbin/cargo && for t in bash sh perl sleep git dirname basename tr date mkdir tail head sed grep cat awk env rm mv cp; do p=$(command -v \"$t\") && ln -s \"$p\" \"minbin/$t\"; done; true"
   ],
-  "env": { "PATH": "{TMPROOT}/minbin", "CCK_QUALITY_GATE_TIMEOUT": "2" },
+  "env": { "PATH": "{TMPROOT}/minbin", "ACK_QUALITY_GATE_TIMEOUT": "2" },
   "steps": [
     {
       "hook": ".claude/hooks/quality-gate.sh",

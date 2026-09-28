@@ -93,7 +93,7 @@ Stop and request approval before:
 Provide at least 2 approaches with tradeoffs. Do not proceed without confirmation.
 After approval, record the decision in `tasks/decisions.md` using the ADR template.
 
-> _Enforced via_ `.claude/hooks/protect-changes.sh` _— edits to dependency manifests, migrations, and auth paths return exit 2 unless_ `CLAUDE_APPROVED=1` _is set, and so do package-manager commands that add a dependency (_`npm install <pkg>`_,_ `pnpm add`_,_ `cargo add`_,_ `go get`_, …). Build configs hard-block only under the strict profile (_`CCK_PROTECT_BUILD_CONFIGS=1`_); otherwise they emit a non-blocking heads-up. Record the rationale in_ `tasks/decisions.md` _before bypassing._
+> _Enforced via_ `.claude/hooks/protect-changes.sh` _— edits to dependency manifests, migrations, and auth paths return exit 2 unless_ `CLAUDE_APPROVED=1` _is set, and so do package-manager commands that add a dependency (_`npm install <pkg>`_,_ `pnpm add`_,_ `cargo add`_,_ `go get`_, …). Build configs hard-block only under the strict profile (_`ACK_PROTECT_BUILD_CONFIGS=1`_); otherwise they emit a non-blocking heads-up. Record the rationale in_ `tasks/decisions.md` _before bypassing._
 
 ---
 
