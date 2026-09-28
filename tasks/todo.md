@@ -104,7 +104,7 @@ from Conventional Commits, so this section only carries work that has landed on
 - [x] Hook context reaches the model (`hookSpecificOutput`); Bash policy hooks
   close heredoc commits, `--no-verify`, dependency adds, secret staging,
   `+main` / `--all` pushes, `core.hooksPath`, pathspec files and unresolved cwd
-  changes; KitBench 99 → 156 scenarios.
+  changes; KitBench 99 → 157 scenarios.
 - [x] Skills/docs corrected (WCAG 2.2, audit commands, Next.js); `gen-agents-md`
   skips nested checkouts.
 

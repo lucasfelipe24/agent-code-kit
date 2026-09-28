@@ -450,7 +450,7 @@ Pelo WSL. O instalador e os hooks são scripts bash.
 
 ## 🧪 Rodar os testes
 
-Os hooks são testados. O repositório do kit roda um harness de regressão com 156 cenários — cada comportamento de bloqueio, mais testes de bugs já corrigidos — a cada mudança. A partir de um clone do repositório:
+Os hooks são testados. O repositório do kit roda um harness de regressão com 157 cenários — cada comportamento de bloqueio, mais testes de bugs já corrigidos — a cada mudança. A partir de um clone do repositório:
 
 ```bash
 npm test        # cenários de hooks do KitBench, depois os testes de instalação/desinstalação e da CLI
@@ -463,7 +463,7 @@ KitBench
   s31-branch-protect-blocks-push-u-main     PASS
   s52-quality-gate-fix-unblocks-stop        PASS
   ...
-  156/156 PASS  0 FAIL
+  157/157 PASS  0 FAIL
 ```
 
 ## 👤 Autor

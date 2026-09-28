@@ -178,6 +178,7 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s159 | `block-dangerous-blocks-hookspath-env-config` | Inline or inherited `GIT_CONFIG_KEY_n=core.hooksPath` on a hook-running Git command → exit 2; unrelated config stays allowed |
 | s160 | `protect-files-blocks-pathspec-files-and-unknown-cwd` | Pathspec files and unresolved cwd-changing shell constructs fail closed; literal safe paths remain allowed |
 | s161 | `stop-gate-carries-over-former-prefix-marker` | A marker written under the kit's former file prefix (ADR-029) is moved to the `ack-gate-*` marker and still blocks the stop |
+| s162 | `protect-files-allows-read-only-git-with-dynamic-dir` | `git -C "$VAR" status` / `log` and a dynamic `cd` before a read stay allowed; the same with `add` still blocks |
 
 Every blocking scenario for `protect-files`, `block-dangerous-commands`, `branch-protect`, `conventional-commit` and `loop-detect` asserts `stdout_empty` and `stderr_starts_with: "BLOCKED"`: on exit 2 Claude Code feeds the agent stderr, so a reason written to stdout never reaches it.
 
