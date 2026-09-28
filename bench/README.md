@@ -175,6 +175,8 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s156 | `protect-changes-migrations-guard` | Django, Knex and Rails migrations still block; neighbouring safe files are allowed |
 | s157 | `glob-guidance-nudges-ef-core-alembic-and-root-migrations` | EF Core, Alembic and root-level migrations receive the one-shot migration nudge |
 | s158 | `glob-guidance-migrations-guard` | Django and Rails still receive the nudge; a neighbouring DbContext does not |
+| s159 | `block-dangerous-blocks-hookspath-env-config` | Inline or inherited `GIT_CONFIG_KEY_n=core.hooksPath` on a hook-running Git command → exit 2; unrelated config stays allowed |
+| s160 | `protect-files-blocks-pathspec-files-and-unknown-cwd` | Pathspec files and unresolved cwd-changing shell constructs fail closed; literal safe paths remain allowed |
 
 Every blocking scenario for `protect-files`, `block-dangerous-commands`, `branch-protect`, `conventional-commit` and `loop-detect` asserts `stdout_empty` and `stderr_starts_with: "BLOCKED"`: on exit 2 Claude Code feeds the agent stderr, so a reason written to stdout never reaches it.
 
