@@ -48,8 +48,10 @@ case "$base" in
     emit tests "Test file — keep tests behavior-focused. For a bug fix, add a failing test first, then make it pass (CLAUDE.md → Verification)." ;;
 esac
 
+# Migrations: Django/Knex migrations/, Rails migrate/, EF Core Migrations/ and
+# its *ModelSnapshot.cs, Alembic alembic/versions/ — as in protect-changes.sh.
 case "$FILE_PATH" in
-  */migrations/*|*[._-]migration[._-]*|*/migrate/*)
+  */migrations/*|migrations/*|*/Migrations/*|Migrations/*|*ModelSnapshot.cs|*/alembic/versions/*|alembic/versions/*|*[._-]migration[._-]*|*/migrate/*|migrate/*)
     emit migrations "Migration — this is a Protected Change. Confirm rollback, lock duration, and backfill/read-write impact before applying (CLAUDE.md → Protected Changes)." ;;
 esac
 

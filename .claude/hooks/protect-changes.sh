@@ -275,10 +275,11 @@ case "$BASENAME" in
     ;;
 esac
 
-# Migrations & schema files
+# Migrations & schema files — Django/Knex migrations/, Rails migrate/, EF Core
+# Migrations/ and its *ModelSnapshot.cs, Alembic alembic/versions/
 if [ "$BLOCKED" = false ]; then
   case "$NORM" in
-    */migrations/*|migrations/*|*/migrate/*|migrate/*|*/schema.sql|schema.sql|*/schema.prisma|schema.prisma)
+    */migrations/*|migrations/*|*/Migrations/*|Migrations/*|*ModelSnapshot.cs|*/alembic/versions/*|alembic/versions/*|*/migrate/*|migrate/*|*/schema.sql|schema.sql|*/schema.prisma|schema.prisma)
       BLOCKED=true
       REASON="database migration/schema — confirm rollback plan and production impact"
       ;;

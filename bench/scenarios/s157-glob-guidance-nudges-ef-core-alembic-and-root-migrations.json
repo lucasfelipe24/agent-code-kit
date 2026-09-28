@@ -1,0 +1,29 @@
+{
+  "name": "s157-glob-guidance-nudges-ef-core-alembic-and-root-migrations",
+  "steps": [
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "{TMPROOT}/src/Infrastructure/Migrations/20260101120000_InitialCreate.cs" } },
+      "expect": { "exit_code": 0, "stdout_contains": ["{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"[glob-guidance] Migration"] }
+    },
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "setup_files": { ".hook-state/glob-guidance-fired": "" },
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/src/Infrastructure/Data/AppDbContextModelSnapshot.cs" } },
+      "expect": { "exit_code": 0, "stdout_contains": ["[glob-guidance] Migration"] }
+    },
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "setup_files": { ".hook-state/glob-guidance-fired": "" },
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "{TMPROOT}/alembic/versions/0001_create_users.py" } },
+      "expect": { "exit_code": 0, "stdout_contains": ["[glob-guidance] Migration"] }
+    },
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "setup_files": { ".hook-state/glob-guidance-fired": "" },
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "migrations/0001_init.sql" } },
+      "expect": { "exit_code": 0, "stdout_contains": ["[glob-guidance] Migration"] }
+    }
+  ],
+  "notes": "The migration nudge missed EF Core's Migrations/ and *ModelSnapshot.cs, Alembic's alembic/versions/, and a root-level migrations/ path (no nudge). Each step empties the one-shot ledger first."
+}
