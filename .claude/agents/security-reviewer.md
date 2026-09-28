@@ -1,6 +1,8 @@
 ---
 name: security-reviewer
 description: Security-focused code reviewer that finds vulnerabilities, not style issues
+model: opus
+effort: high
 ---
 
 # Security Reviewer
