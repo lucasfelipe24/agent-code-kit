@@ -1,0 +1,23 @@
+{
+  "name": "s150-skill-compliance-reminder-reaches-claude",
+  "setup_files": {
+    "src/app.ts": "export const x = 1;\n"
+  },
+  "steps": [
+    {
+      "hook": ".claude/hooks/skill-compliance.sh",
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/src/app.ts" } },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": ["{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"SKILL_COMPLIANCE: Edited app.ts"],
+        "stdout_not_contains": ["\n{", "\nSKILL_COMPLIANCE"]
+      }
+    },
+    {
+      "hook": ".claude/hooks/skill-compliance.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "ls src" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Strict profile hook. The reminder was plain stdout at exit 0, which for PostToolUse only reaches the debug log — Claude never saw it. It is now PostToolUse additionalContext JSON (one object); a non-edit tool still prints nothing."
+}

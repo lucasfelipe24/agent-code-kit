@@ -78,7 +78,7 @@ These hooks are included in the kit but **not enabled** in the standard profile.
 |------|------|-------|-------------|
 | **auto-lint** | `.claude/hooks/auto-lint.sh` | PostToolUse | Runs linter with --fix after file edits (eslint, ruff, gofmt, clippy, rubocop) |
 | **auto-format** | `.claude/hooks/auto-format.sh` | PostToolUse | Runs formatter after file edits (prettier, black, gofmt, rustfmt) |
-| **skill-compliance** | `.claude/hooks/skill-compliance.sh` | PostToolUse | Checks edited files against active skills and surfaces relevant checklists |
+| **skill-compliance** | `.claude/hooks/skill-compliance.sh` | PostToolUse | Checks edited files against active skills and surfaces relevant checklists as PostToolUse `additionalContext` (plain stdout at exit 0 never reaches Claude) |
 | **skill-extract-reminder** | `.claude/hooks/skill-extract-reminder.sh` | UserPromptSubmit | Reminds to extract reusable skills from session discoveries |
 | **notify-waiting** | `.claude/hooks/notify-waiting.sh` | Notification | Pushes an out-of-terminal ping the moment Claude is **waiting** for you (input or a permission prompt) — so long autonomous runs (`/loop`, auto-mode, `/ship`) don't go dark. Local desktop notification (terminal-notifier / osascript / notify-send), silent if none present. Optional remote push (ntfy / Pushover) is **off by default**, opt-in via env. Strictly advisory — never blocks. Complements `task-complete-notify` (Stop = "done"; this = "waiting"). |
 
