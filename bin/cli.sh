@@ -83,7 +83,10 @@ case "$CMD" in
       name="$(basename "$d")"
       case "$name" in _*) continue ;; esac   # skip _shared / _templates
       [ -f "$d/SKILL.md" ] || continue
-      desc="$(sed -n '/^---$/,/^---$/p' "$d/SKILL.md" | grep -m1 '^description:' | sed 's/^description:[[:space:]]*//;s/^["'\'']//;s/["'\'']$//')"
+      # One awk reads the frontmatter straight from the file: a `grep -m1` fed by
+      # a pipe exits on its first match, and under pipefail the writer's SIGPIPE
+      # ended this whole listing (set -e) before the count line — intermittently.
+      desc="$(awk '/^---$/ { if (++fm == 2) exit; next } fm == 1 && /^description:/ { print; exit }' "$d/SKILL.md" | sed 's/^description:[[:space:]]*//;s/^["'\'']//;s/["'\'']$//')"
       printf '  /%-22s %s\n' "$name" "$desc"
       count=$((count + 1))
     done
