@@ -211,20 +211,44 @@ printf '%s\n' "$CONTENT" > "$OUTFILE"
 # AGENTS.md is nearest-file-wins, so mirror each subdirectory CLAUDE.md into a
 # sibling AGENTS.md — non-Claude tools then get the module-local rules the kit
 # already designed (e.g. src/api/CLAUDE.md -> src/api/AGENTS.md). The root
-# CLAUDE.md is handled above; non-project dirs are pruned.
+# CLAUDE.md is handled above; non-project dirs are pruned, and so is every
+# nested git checkout — a Claude Code worktree (.claude/worktrees/<name>/), a
+# submodule (.git file) or a nested clone (.git dir) is another project with
+# its own root CLAUDE.md.
+PRUNE=( -path '*/node_modules' -o -path '*/examples' -o -path '*/wiki-module' -o -path '*/html-module' -o -path '*/.claude/worktrees' )
+
+# Pass 1: each .git entry (file or dir) below $DEST marks its parent as a
+# checkout root. One walk, no per-directory process — large trees stay fast.
+CHECKOUTS=""
+while IFS= read -r dotgit; do
+  parent="${dotgit%/.git}"
+  case "$parent" in "$DEST"|"${DEST%/}") continue ;; esac   # $DEST's own .git
+  CHECKOUTS="$CHECKOUTS$parent"$'\n'
+done < <(find "$DEST" \( "${PRUNE[@]}" \) -prune -o -name .git -prune -print 2>/dev/null)
+
+# in_checkout <path> — true when <path> lies under a pass-1 checkout root.
+in_checkout() {
+  local root
+  while IFS= read -r root; do
+    [ -n "$root" ] || continue
+    case "$1" in "$root"/*) return 0 ;; esac
+  done <<< "$CHECKOUTS"
+  return 1
+}
+
+# Pass 2: mirror every CLAUDE.md that is not inside one of those checkouts.
 NESTED=0
 while IFS= read -r sub; do
   rel="${sub#"$DEST"/}"
   if [ "$rel" = "CLAUDE.md" ]; then continue; fi   # root, already done
+  if in_checkout "$sub"; then continue; fi          # another checkout's file
   subdir=$(dirname "$sub")
   {
     printf '<!-- GENERATED from %s — do not edit; regenerate with scripts/gen-agents-md.sh -->\n\n' "$rel"
     cat "$sub"
   } > "$subdir/AGENTS.md"
   NESTED=$((NESTED + 1))
-done < <(find "$DEST" \
-  \( -path '*/node_modules' -o -path '*/.git' -o -path '*/examples' -o -path '*/wiki-module' -o -path '*/html-module' \) -prune \
-  -o -name CLAUDE.md -print 2>/dev/null)
+done < <(find "$DEST" \( -path '*/.git' -o "${PRUNE[@]}" \) -prune -o -name CLAUDE.md -print 2>/dev/null)
 
 # Line count for output
 LINES=$(wc -l < "$OUTFILE" | tr -d ' ')
