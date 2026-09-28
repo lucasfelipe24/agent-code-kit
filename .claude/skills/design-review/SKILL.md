@@ -98,7 +98,7 @@ Flag generic AI-generated design patterns that look templated:
 
 Check responsive design across breakpoints:
 
-- **Mobile (320-480px)** — single column, touch targets ≥44px, no horizontal scroll
+- **Mobile (320-480px)** — single column, targets ≥24×24px (WCAG 2.2 AA; 44×44px recommended for touch), no horizontal scroll
 - **Tablet (768-1024px)** — appropriate layout adaptation, not just scaled-down desktop
 - **Desktop (1280+)** — proper use of space, readable line lengths (45-75 chars)
 - **Edge cases** — very small screens (320px), very large screens (2560px+)

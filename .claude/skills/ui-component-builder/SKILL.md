@@ -41,7 +41,7 @@ Invoke with `/ui-component-builder <component-name>` when:
 ## Hard Rules
 
 - **No new design tokens without DESIGN.md.** If colors, spacing, or typography need extending, stop and ask. New tokens are a Protected Change.
-- **Accessibility is not optional.** Every interactive component must be keyboard-navigable, have correct ARIA semantics, and pass WCAG 2.1 AA contrast.
+- **Accessibility is not optional.** Every interactive component must be keyboard-navigable, have correct ARIA semantics, and pass WCAG 2.2 AA contrast.
 - **States are required, not optional.** Loading, empty, error, and disabled states must be considered before the component is "done." Skipping them is shipping a demo, not a component.
 - **Match existing style.** If the project uses controlled inputs, do not introduce uncontrolled ones. If it uses Tailwind, do not introduce CSS modules.
 - **No props soup.** If a component grows past ~8 props, split it or use composition (slots/children). The skill must surface this trade-off explicitly.
@@ -103,7 +103,7 @@ Enumerate before implementation:
 - Very long strings without spaces (`overflow-wrap: anywhere`)
 
 **Responsive**
-- Mobile (320-480px) — touch targets ≥44px, single column, no horizontal scroll
+- Mobile (320-480px) — targets ≥24×24px (WCAG 2.2 AA; 44×44px recommended for touch), single column, no horizontal scroll
 - Tablet (768-1024px) — adapt layout, not just shrink desktop
 - Desktop (1280+) — readable line lengths (45-75 chars)
 - Container queries when the component lives in variable-width slots

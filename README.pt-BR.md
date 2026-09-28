@@ -217,7 +217,7 @@ Skills são comandos que você roda no Claude Code com `/nome`. Algumas boas par
 | `/testing-audit` | Cobertura, qualidade e testes instáveis (flaky) |
 | `/dead-code-audit` | Funções, imports e arquivos sem uso |
 | `/dependency-audit` | Vulnerabilidades, versões desatualizadas, licenças e excesso de dependências |
-| `/accessibility-audit` | Conformidade com a WCAG 2.1 AA |
+| `/accessibility-audit` | Conformidade com a WCAG 2.2 AA |
 | `/design-review` | Consistência visual e comportamento responsivo de uma UI já construída |
 | `/documentation-audit` | Qualidade de comentários, documentação de API e README |
 | `/doc-gardening` | Documentação que ficou defasada em relação ao código |

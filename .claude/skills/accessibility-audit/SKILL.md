@@ -1,6 +1,6 @@
 ---
 name: accessibility-audit
-description: Audit UI code for WCAG 2.1 AA compliance — semantics, keyboard navigation, color contrast, and ARIA. Use when auditing accessibility or the user mentions a11y, screen readers, WCAG, or keyboard support. For visual/design quality use /design-review instead.
+description: Audit UI code for WCAG 2.2 AA compliance — semantics, keyboard navigation, color contrast, and ARIA. Use when auditing accessibility or the user mentions a11y, screen readers, WCAG, or keyboard support. For visual/design quality use /design-review instead.
 user-invocable: true
 ---
 
@@ -8,7 +8,7 @@ user-invocable: true
 
 ## Core Rule
 
-Test against WCAG 2.1 AA criteria with concrete user-impact. Never auto-edit semantic HTML or ARIA without explicit user approval.
+Test against WCAG 2.2 AA criteria with concrete user-impact. Never auto-edit semantic HTML or ARIA without explicit user approval.
 
 ## When to Use
 
@@ -63,6 +63,7 @@ Verify full keyboard operability:
 
 - **Tab order**: logical, follows visual layout, no keyboard traps
 - **Focus visibility**: all interactive elements have visible focus indicators
+- **Focus not obscured**: the focused element is not entirely hidden by sticky headers, banners, or overlays (SC 2.4.11, AA)
 - **Interactive elements**: all clickable elements are reachable and operable via keyboard
 - **Custom widgets**: keyboard patterns follow WAI-ARIA Authoring Practices
   - Modals: trap focus, Escape to close
@@ -71,6 +72,7 @@ Verify full keyboard operability:
   - Sliders: Arrow keys to adjust
 - **Skip links**: "Skip to main content" link for long navigation
 - **No mouse-only interactions**: hover-only tooltips, drag-only sorting
+- **Dragging alternatives**: anything done by dragging (sortable lists, sliders, maps) also works with single-pointer clicks/taps (SC 2.5.7, AA)
 
 ### Phase 4: Visual Accessibility
 
@@ -85,8 +87,8 @@ Check visual design compliance:
 **Typography & Layout**
 - Text can be resized to 200% without loss of content
 - No horizontal scrolling at 320px viewport width (responsive)
-- Line height ≥ 1.5, paragraph spacing ≥ 2x font size
-- Touch targets ≥ 44x44px (mobile)
+- No clipped, overlapping, or lost content when the user overrides text spacing to line height 1.5×, paragraph spacing 2×, letter spacing 0.12×, and word spacing 0.16× the font size (SC 1.4.12, AA) — avoid fixed-height text containers
+- Pointer targets ≥ 24×24 CSS px, or spaced so 24px-diameter circles centered on them don't intersect other targets (SC 2.5.8, AA); 44×44px is the AAA / recommended touch size (SC 2.5.5)
 
 **Motion & Animation**
 - Respect `prefers-reduced-motion` media query
@@ -114,6 +116,9 @@ Check content is accessible:
 - **Links**: link text is descriptive (no "click here" or "read more" without context)
 - **Language**: `lang` attribute set on `<html>` and on elements in different languages
 - **Timeouts**: users are warned before timeouts and can extend them
+- **Consistent help**: help mechanisms (contact details, chat, help link) appear in the same relative order across pages (SC 3.2.6, A)
+- **Redundant entry**: information already given in the same process is auto-filled or selectable, not re-typed (SC 3.3.7, A)
+- **Accessible authentication**: login needs no cognitive test (recall, transcription, puzzles) without an alternative — allow paste and password managers (SC 3.3.8, AA)
 
 ## Output Format
 
@@ -121,7 +126,7 @@ Check content is accessible:
 # Accessibility Audit Report
 
 ## Compliance Level
-[Current WCAG 2.1 AA compliance estimate: Non-compliant / Partially / Mostly / Fully]
+[Current WCAG 2.2 AA compliance estimate: Non-compliant / Partially / Mostly / Fully]
 
 ## Critical Issues (A-level violations)
 | # | WCAG Criterion | Location | Issue | Fix |
@@ -148,7 +153,7 @@ Check content is accessible:
 
 ## Notes
 
-- This audit covers WCAG 2.1 AA level — AAA is aspirational and not required for most projects
+- This audit covers WCAG 2.2 AA level — AAA is aspirational and not required for most projects. 4.1.1 Parsing is obsolete in 2.2; don't report it
 - For mobile apps, apply the equivalent platform accessibility guidelines alongside WCAG
 - Static code analysis catches structural issues but manual testing with screen readers is still recommended
 - Non-UI projects (APIs, CLIs, libraries) do not need this audit
