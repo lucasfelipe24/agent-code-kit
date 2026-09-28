@@ -37,6 +37,17 @@ Track important technical decisions here so they don't get lost between sessions
 
 <!-- Add new decisions below this line -->
 
+### ADR-028: Releases are GitHub-only; npm publishing is opt-in
+- **Date**: 2026-09-28
+- **Status**: accepted
+- **Context**: The Release workflow published every release-please release to npm with the `NPM_TOKEN` secret. The maintainer wants to cut releases on GitHub only for now, without losing the ability to publish to npm again later.
+- **Options**:
+  - A) Delete the `publish-npm` job — Pros: nothing to gate / Cons: turning publishing back on means rewriting the job
+  - B) Gate the job on a repository variable, `NPM_PUBLISH == 'true'` — Pros: off by default, back on with one command and the secret, no workflow edit / Cons: a job that is skipped on every release
+  - C) Leave the job and just not set `NPM_TOKEN` — Pros: no change / Cons: every release run fails the publish job instead of skipping it
+- **Decision**: B, at the maintainer's request.
+- **Consequences**: Releases create the tag and the GitHub release; the npm package stays at the last published version (1.22.4), so `npx @lucasfelipe23/agent-code-kit` installs that version until publishing resumes, while the curl installer follows GitHub. To publish again: set `NPM_TOKEN`, then `gh variable set NPM_PUBLISH --body true` (RELEASING.md).
+
 ### ADR-027: Solo-maintained repository — issues off, pull requests limited to collaborators
 - **Date**: 2026-09-28
 - **Status**: accepted
