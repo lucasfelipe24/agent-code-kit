@@ -1,0 +1,16 @@
+{
+  "name": "s145-block-dangerous-allows-other-git-config",
+  "steps": [
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -c color.ui=always -c user.name=kitbench commit -m \"feat: add search\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -m \"docs: never pass -c core.hooksPath=/dev/null\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s144: other -c settings are allowed, and core.hooksPath inside a commit message is text, not an option."
+}

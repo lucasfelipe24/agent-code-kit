@@ -158,6 +158,25 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s139 | `session-start-quiet-with-nothing-to-say` | Nothing to inject → no output at all, not an empty `hookSpecificOutput` |
 | s140 | `prompt-router-quiet-without-prompt` | A payload with no prompt → no output, exit 0 |
 | s141 | `skill-extract-reminder-reaches-claude` | The reminder is `hookSpecificOutput` for UserPromptSubmit (was a top-level `additionalContext`) |
+| s142 | `branch-protect-blocks-push-all` | `git push --all` / `--branches` → exit 2 (pushes main/master too) |
+| s143 | `branch-protect-allows-tags-and-all-mention` | Pushing tags, or text that only mentions `git push --all`, → exit 0 |
+| s144 | `block-dangerous-blocks-hookspath-override` | `git -c core.hooksPath=…` / `--config-env` on commit, push, merge, rebase or cherry-pick → exit 2 |
+| s145 | `block-dangerous-allows-other-git-config` | Other `git -c` settings and `core.hooksPath` inside a commit message → exit 0 |
+| s146 | `protect-files-blocks-git-add-after-cd` | `cd sub && git add …` checks paths relative to `sub` and blocks a protected file |
+| s147 | `protect-files-blocks-git-add-after-cd-into-nested-repo` | `cd` into a nested repo then `git add .` with `.env` → exit 2 |
+| s148 | `protect-files-blocks-git-add-after-cd-below-non-repo-root` | Non-git project root, `cd app && git add .` in a nested repo with `.env` → exit 2 |
+| s149 | `protect-files-allows-git-add-outside-cd-scope` | Subshell `cd`, `cd ..`, and safe files use the effective directory correctly |
+| s150 | `skill-compliance-reminder-reaches-claude` | Strict-profile reminder is PostToolUse `additionalContext` JSON (was invisible plain stdout) |
+| s151 | `prompt-router-broken-python3-still-routes` | Broken python3 stub falls back and still routes a domain prompt |
+| s152 | `prompt-router-broken-python3-quiet-on-neutral` | Broken python3 + no jq + neutral prompt → no output |
+| s153 | `prompt-router-git-checkout-not-billing` | Git checkout/checkouts, `striped`, and “in charge of” do not inject Billing context |
+| s154 | `prompt-router-store-checkout-is-billing` | Store checkout, cart, Stripe and surcharge still inject Billing context |
+| s155 | `protect-changes-blocks-ef-core-and-alembic-migrations` | EF Core `Migrations/` / `*ModelSnapshot.cs` and Alembic `alembic/versions/` → exit 2 |
+| s156 | `protect-changes-migrations-guard` | Django, Knex and Rails migrations still block; neighbouring safe files are allowed |
+| s157 | `glob-guidance-nudges-ef-core-alembic-and-root-migrations` | EF Core, Alembic and root-level migrations receive the one-shot migration nudge |
+| s158 | `glob-guidance-migrations-guard` | Django and Rails still receive the nudge; a neighbouring DbContext does not |
+| s159 | `block-dangerous-blocks-hookspath-env-config` | Inline or inherited `GIT_CONFIG_KEY_n=core.hooksPath` on a hook-running Git command → exit 2; unrelated config stays allowed |
+| s160 | `protect-files-blocks-pathspec-files-and-unknown-cwd` | Pathspec files and unresolved cwd-changing shell constructs fail closed; literal safe paths remain allowed |
 
 Every blocking scenario for `protect-files`, `block-dangerous-commands`, `branch-protect`, `conventional-commit` and `loop-detect` asserts `stdout_empty` and `stderr_starts_with: "BLOCKED"`: on exit 2 Claude Code feeds the agent stderr, so a reason written to stdout never reaches it.
 

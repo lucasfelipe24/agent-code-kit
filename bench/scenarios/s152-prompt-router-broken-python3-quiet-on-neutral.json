@@ -1,0 +1,14 @@
+{
+  "name": "s152-prompt-router-broken-python3-quiet-on-neutral",
+  "setup_files": {
+    "minbin/python3": "#!/bin/sh\necho 'xcode-select: note: No developer tools were found, requesting install.' >&2\nexit 1\n"
+  },
+  "setup_commands": [
+    "chmod +x minbin/python3 && for t in bash sh awk cat dirname grep head sed tr; do p=$(command -v \"$t\") && ln -sf \"$p\" \"minbin/$t\"; done; true"
+  ],
+  "env": { "PATH": "{TMPROOT}/minbin" },
+  "hook": ".claude/hooks/prompt-router.sh",
+  "payload": { "session_id": "kitbench", "hook_event_name": "UserPromptSubmit", "prompt": "Rename the helper and update its docstring" },
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "Guard for s151: with no usable python3 and no jq, a prompt with no domain keyword still prints nothing (s13 is the same with python3)."
+}

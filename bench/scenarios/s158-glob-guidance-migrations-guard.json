@@ -1,0 +1,23 @@
+{
+  "name": "s158-glob-guidance-migrations-guard",
+  "steps": [
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/app/migrations/0002_auto.py" } },
+      "expect": { "exit_code": 0, "stdout_contains": ["[glob-guidance] Migration"] }
+    },
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "setup_files": { ".hook-state/glob-guidance-fired": "" },
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "{TMPROOT}/db/migrate/20260101000000_create_users.rb" } },
+      "expect": { "exit_code": 0, "stdout_contains": ["[glob-guidance] Migration"] }
+    },
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "setup_files": { ".hook-state/glob-guidance-fired": "" },
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/src/Infrastructure/Data/AppDbContext.cs" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s157: Django and Rails migrations still get the nudge; a DbContext next to the EF Core migrations gets none."
+}

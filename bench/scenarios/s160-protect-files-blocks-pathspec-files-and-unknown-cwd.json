@@ -1,0 +1,85 @@
+{
+  "name": "s160-protect-files-blocks-pathspec-files-and-unknown-cwd",
+  "setup_files": {
+    "sub/config/.env": "API_KEY=kitbench-not-a-real-key\n",
+    "sub/paths": "config/.env\n",
+    "safe.txt": "safe\n"
+  },
+  "setup_commands": [
+    "git init -q ."
+  ],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd sub && git add --pathspec-from-file=paths"
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED",
+        "stderr_contains": ["config/.env"]
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "cd sub && git add --pathspec-from-file paths"
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED"
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "function f { cd sub; }; f; git add config"
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED",
+        "stderr_contains": ["cannot resolve"]
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "TARGET=sub; cd $TARGET && git add config"
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED"
+      }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git add safe.txt"
+        }
+      },
+      "expect": {
+        "exit_code": 0,
+        "stderr_empty": true
+      }
+    }
+  ],
+  "notes": "Pathspec files and unmodelled cwd changes must never let a protected file be staged. Literal safe paths remain allowed."
+}

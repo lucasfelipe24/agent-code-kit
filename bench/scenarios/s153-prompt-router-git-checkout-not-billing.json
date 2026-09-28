@@ -1,0 +1,46 @@
+{
+  "name": "s153-prompt-router-git-checkout-not-billing",
+  "steps": [
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "Run git checkout -b feat/x, then skip nested git checkouts"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "Use a worktree checkout per agent; git checkout page-redesign first"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "Add zebra striped rows; who is in charge of the discharge logs?"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "Move the repository branch checkout flow into a helper"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
+    }
+  ],
+  "notes": "Git and repository checkout wording must not inject billing context; striped/discharge/in charge remain guards for keyword substrings."
+}

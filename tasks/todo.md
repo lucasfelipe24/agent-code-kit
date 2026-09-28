@@ -130,7 +130,4 @@ Found while fixing the five v1.22.2 field bugs, outside their scope:
 
 Found while fixing the hook enforcement gaps, outside their scope:
 
-- **More ways past the Bash policy hooks**: `git push --all` still pushes `main`; `git -c core.hooksPath=/dev/null commit` still skips git hooks; `cd sub && git add .` is checked against the project root, not `sub`. _(hook enforcement fixes)_
-- **`skill-compliance.sh` (strict profile) prints plain stdout at exit 0**, and its comment wrongly calls that `additionalContext` — Claude never sees it. _(hook enforcement fixes)_
-- **With a broken `python3` stub, `prompt-router.sh` reads an empty prompt** and stays silent: its parsing checks only that python3 exists, not that it runs. Pre-existing. _(hook enforcement fixes)_
 - **doctor's placeholder count misses HTML-comment placeholders**, so an untouched `scaffold/CODEBASE_MAP.md` reads "appears filled in"; the dotnet map's `<App>`-style tokens aren't counted either. _(v1.22.2 field bugs)_

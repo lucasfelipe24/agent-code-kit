@@ -1,0 +1,32 @@
+{
+  "name": "s146-protect-files-blocks-git-add-after-cd",
+  "setup_files": {
+    "sub/config/.env": "API_KEY=kitbench-not-a-real-key\n",
+    "sub/app.ts": "export const x = 1;\n",
+    "README.md": "# kitbench\n"
+  },
+  "setup_commands": ["git init -q ."],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd sub && git add config" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["sub/config/.env — Environment file with secrets"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd sub; git add config/" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd sub && git -C config add ." } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "(cd sub && git add config)" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "git add after a cd was checked against the project root: `cd sub && git add config` asked git status about <root>/config, found nothing and staged sub/config/.env (exit 0). The hook now follows a cd earlier in the same (sub)shell, as well as -C."
+}

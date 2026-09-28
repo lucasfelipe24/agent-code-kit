@@ -70,6 +70,7 @@ while [ "$i" -lt "$SH_NSEG" ]; do
   FORCE=false
   LEASE=false
   MIRROR=false
+  ALL=false
   TAGS=false
   REMOTE_SEEN=false
   REFSPECS=0
@@ -84,6 +85,7 @@ while [ "$i" -lt "$SH_NSEG" ]; do
       --force) FORCE=true ;;
       --force-with-lease|--force-with-lease=*) LEASE=true ;;
       --mirror) MIRROR=true ;;
+      --all|--branches) ALL=true ;;
       --tags) TAGS=true ;;
       --repo|--receive-pack|--exec|--push-option) k=$((k + 1)) ;;
       --*) ;;
@@ -146,6 +148,11 @@ while [ "$i" -lt "$SH_NSEG" ]; do
   # force-updated, and deleted if missing locally.
   if [ "$MIRROR" = true ]; then
     block_protected "git push --mirror overwrites every remote branch, main/master included"
+  fi
+
+  # --all (alias --branches) pushes every local branch, main/master included.
+  if [ "$ALL" = true ]; then
+    block_protected "git push --all pushes every local branch, main/master included"
   fi
 
   # A refspec whose destination is main/master

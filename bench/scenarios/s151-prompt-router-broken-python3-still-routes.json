@@ -1,0 +1,50 @@
+{
+  "name": "s151-prompt-router-broken-python3-still-routes",
+  "setup_files": {
+    "bin/python3": "#!/bin/sh\necho 'xcode-select: note: No developer tools were found, requesting install.' >&2\nexit 1\n",
+    "minbin/python3": "#!/bin/sh\necho 'xcode-select: note: No developer tools were found, requesting install.' >&2\nexit 1\n"
+  },
+  "setup_commands": [
+    "chmod +x bin/python3 minbin/python3 && for t in bash sh awk cat dirname grep head sed tr; do p=$(command -v \"$t\") && ln -sf \"$p\" \"minbin/$t\"; done; true"
+  ],
+  "steps": [
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "env": {
+        "PATH": "{TMPROOT}/bin:{PATH}"
+      },
+      "payload": {
+        "session_id": "kitbench",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "Fix the authentication flow"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Auth/security context]"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "env": {
+        "PATH": "{TMPROOT}/minbin"
+      },
+      "payload": {
+        "session_id": "kitbench",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": "Fix the \"authentication\" flow"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"[Auth/security context]"
+        ],
+        "stdout_not_contains": [
+          "\n{"
+        ]
+      }
+    }
+  ],
+  "notes": "python3 on PATH is the macOS xcode-select stub, which exits 1. Parsing only checked that python3 existed, so the prompt read as empty and the router stayed silent. The usable-python3 probe (lib/python3.sh) now counts the stub as absent: jq reads the prompt (step 1, where jq is installed), and without jq the bash extraction does (step 2). The no-parser step includes escaped JSON quotes so the bash decoder is exercised."
+}

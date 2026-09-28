@@ -1,0 +1,43 @@
+{
+  "name": "s154-prompt-router-store-checkout-is-billing",
+  "steps": [
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "fix the stripe checkout page"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "\"hookEventName\":\"UserPromptSubmit\"",
+          "[Billing context]"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "The store checkout flow loses the cart"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "[Billing context]"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "Add a 3% surcharge to card orders"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "[Billing context]"
+        ]
+      }
+    }
+  ],
+  "notes": "Guard for s153: commerce-qualified checkout, a cart, Stripe and a surcharge inject Billing context."
+}

@@ -120,9 +120,11 @@ fi
 
 # Skipping the project's git hooks: --no-verify on any git command (commit, push,
 # merge, rebase, cherry-pick, am …), and -n on git commit, where it means
-# --no-verify. On git push -n is --dry-run, which stays allowed. Checked per
-# command (lib/shell-segments.sh), so a commit message or an echo that mentions
-# --no-verify doesn't match.
+# --no-verify. On git push -n is --dry-run, which stays allowed. Also
+# `git -c core.hooksPath=<dir>` (or --config-env) on a command that runs hooks:
+# it swaps the project's hooks for another directory — /dev/null skips them all.
+# Checked per command (lib/shell-segments.sh), so a commit message or an echo
+# that mentions --no-verify doesn't match.
 case "$COMMAND" in
   *git*)
     shell_segments "$COMMAND"
@@ -146,6 +148,69 @@ case "$COMMAND" in
             fi
           done
         fi
+        case "$SH_GIT_SUB" in
+          commit|push|merge|pull|rebase|cherry-pick|revert|am)
+            # Git also accepts config through GIT_CONFIG_COUNT/KEY_n/VALUE_n
+            # environment assignments. Treat a core.hooksPath key exactly like
+            # `git -c core.hooksPath=…`; dynamic values fail closed.
+            sh_seg_words "$SEG"
+            CFG_COUNT=""
+            for WORD in ${SH_W[@]+"${SH_W[@]}"}; do
+              case "$WORD" in
+                GIT_CONFIG_COUNT=*) CFG_COUNT=${WORD#*=} ;;
+                GIT_CONFIG_KEY_[0-9]*=*)
+                  KEY=${WORD#*=}
+                  if [ "$(printf '%s' "$KEY" | tr '[:upper:]' '[:lower:]')" = "core.hookspath" ]; then
+                    BLOCKED=true
+                    REASON="Git environment configuration replaces the project's hooks — like --no-verify, it skips them"
+                  fi
+                  ;;
+              esac
+            done
+            case "$CFG_COUNT" in
+              ''|*[!0-9]*) ;;
+              *)
+                IDX=0
+                while [ "$IDX" -lt "$CFG_COUNT" ]; do
+                  KEY_VAR="GIT_CONFIG_KEY_$IDX"
+                  KEY=${!KEY_VAR-}
+                  if [ -n "$KEY" ] && [ "$(printf '%s' "$KEY" | tr '[:upper:]' '[:lower:]')" = "core.hookspath" ]; then
+                    BLOCKED=true
+                    REASON="Git environment configuration replaces the project's hooks — like --no-verify, it skips them"
+                  fi
+                  IDX=$((IDX + 1))
+                done
+                ;;
+            esac
+            # The same variables may be inherited by the hook process rather
+            # than written inline in the command. Inspect names/keys only; never
+            # print config values.
+            case "${GIT_CONFIG_COUNT-}" in
+              ''|*[!0-9]*) ;;
+              *)
+                IDX=0
+                while [ "$IDX" -lt "$GIT_CONFIG_COUNT" ]; do
+                  KEY_VAR="GIT_CONFIG_KEY_$IDX"
+                  KEY=${!KEY_VAR-}
+                  if [ -n "$KEY" ] && [ "$(printf '%s' "$KEY" | tr '[:upper:]' '[:lower:]')" = "core.hookspath" ]; then
+                    BLOCKED=true
+                    REASON="Git environment configuration replaces the project's hooks — like --no-verify, it skips them"
+                  fi
+                  IDX=$((IDX + 1))
+                done
+                ;;
+            esac
+            for CFG in ${SH_GIT_CONFIG[@]+"${SH_GIT_CONFIG[@]}"}; do
+              # Config keys are case-insensitive (core.hookspath works too).
+              case "$(printf '%s' "${CFG%%=*}" | tr '[:upper:]' '[:lower:]')" in
+                core.hookspath)
+                  BLOCKED=true
+                  REASON="git -c core.hooksPath=… $SH_GIT_SUB replaces the project's git hooks — like --no-verify, it skips them"
+                  ;;
+              esac
+            done
+            ;;
+        esac
       fi
       SEG=$((SEG + 1))
     done

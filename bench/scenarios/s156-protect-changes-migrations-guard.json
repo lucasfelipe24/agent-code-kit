@@ -1,0 +1,31 @@
+{
+  "name": "s156-protect-changes-migrations-guard",
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/app/migrations/0002_auto.py" } },
+      "expect": { "exit_code": 2, "stderr_contains": ["database migration/schema"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "migrations/20260101_create_users.js" } },
+      "expect": { "exit_code": 2, "stderr_contains": ["database migration/schema"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "{TMPROOT}/db/migrate/20260101000000_create_users.rb" } },
+      "expect": { "exit_code": 2, "stderr_contains": ["database migration/schema"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/src/Infrastructure/Data/AppDbContext.cs" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/src/Services/UserService.cs" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s155: Django, Knex and Rails migrations still block; a DbContext and a service next to them are still allowed."
+}

@@ -27,6 +27,8 @@
 #   filters, dotted paths, shell fragments, or user-controlled expressions.
 # - parse_json_field never evaluates field names as code; parser-specific queries
 #   receive the field as data.
+# - The bash fallback parses a JSON string value, including JSON escapes. It is
+#   intentionally strict: malformed input or a non-string value yields empty.
 
 # Requires INPUT to be set by the calling script
 : "${INPUT:?json-parse.sh: INPUT variable must be set before sourcing}"
@@ -67,6 +69,62 @@ print(json.dumps({"hookSpecificOutput": {"hookEventName": sys.argv[1], "addition
       | LC_ALL=C awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')\"}}"
   fi
   printf '%s\n' "$out"
+}
+
+# _json_bash_string_field FIELD — parse a top-level string without jq/python.
+# JSON object keys before FIELD are skipped, then the string value is decoded.
+# Bash strings cannot contain NUL, so \u0000 is dropped. Non-ASCII \uXXXX stays
+# as its escape spelling; hook routing still sees all ordinary ASCII words.
+_json_bash_string_field() {
+  local field=$1 s=$INPUT n i=0 c start key value esc hex code ch
+  n=${#s}
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    if [ "$c" != '"' ]; then i=$((i + 1)); continue; fi
+    i=$((i + 1)); key=""; esc=0
+    while [ "$i" -lt "$n" ]; do
+      c=${s:i:1}; i=$((i + 1))
+      if [ "$esc" = 1 ]; then key+=$c; esc=0; continue; fi
+      case "$c" in '\') esc=1 ;; '"') break ;; *) key+=$c ;; esac
+    done
+    [ "$c" = '"' ] || return 0
+    while [ "$i" -lt "$n" ] && [[ "${s:i:1}" == [[:space:]] ]]; do i=$((i + 1)); done
+    [ "${s:i:1}" = ':' ] || continue
+    i=$((i + 1))
+    while [ "$i" -lt "$n" ] && [[ "${s:i:1}" == [[:space:]] ]]; do i=$((i + 1)); done
+    if [ "$key" != "$field" ]; then continue; fi
+    [ "${s:i:1}" = '"' ] || return 0
+    i=$((i + 1)); value=""
+    while [ "$i" -lt "$n" ]; do
+      c=${s:i:1}; i=$((i + 1))
+      case "$c" in
+        '"') printf '%s' "$value"; return 0 ;;
+        '\')
+          [ "$i" -lt "$n" ] || return 0
+          esc=${s:i:1}; i=$((i + 1))
+          case "$esc" in
+            '"'|'\'|'/') value+=$esc ;;
+            b) value+=$'\b' ;; f) value+=$'\f' ;; n) value+=$'\n' ;;
+            r) value+=$'\r' ;; t) value+=$'\t' ;;
+            u)
+              [ $((i + 4)) -le "$n" ] || return 0
+              hex=${s:i:4}; i=$((i + 4))
+              [[ "$hex" =~ ^[0-9A-Fa-f]{4}$ ]] || return 0
+              code=$((16#$hex))
+              if [ "$code" -eq 0 ]; then :
+              elif [ "$code" -le 127 ]; then
+                printf -v ch "\\$(printf '%03o' "$code")"; value+=$ch
+              else value+="\\u$hex"; fi
+              ;;
+            *) return 0 ;;
+          esac
+          ;;
+        $'\n'|$'\r') return 0 ;;
+        *) value+=$c ;;
+      esac
+    done
+    return 0
+  done
 }
 
 parse_json_field() {
@@ -123,6 +181,6 @@ except (json.JSONDecodeError, OSError, TypeError):
     pass
 ' "$field" 2>/dev/null || true
   else
-    printf '%s' "$INPUT" | grep -oE "\"${field}\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*:[[:space:]]*"//;s/"$//' || true
+    _json_bash_string_field "$field"
   fi
 }

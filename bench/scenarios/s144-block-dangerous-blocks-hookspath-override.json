@@ -1,0 +1,36 @@
+{
+  "name": "s144-block-dangerous-blocks-hookspath-override",
+  "steps": [
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -c core.hooksPath=/dev/null commit -m \"feat: add search\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["core.hooksPath"] }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -c core.hooksPath=/dev/null push -u origin feat/search" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -c core.hookspath=/tmp/none merge feat/search" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -C . -c core.hooksPath=/dev/null rebase main" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -c core.hooksPath=/dev/null cherry-pick abc1234" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git --config-env=core.hooksPath=EMPTY_DIR commit -m \"feat: add search\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "git -c core.hooksPath=/dev/null (any case, or --config-env) on commit, push, merge, rebase and cherry-pick skips the project's git hooks exactly like --no-verify (s111-s113), and passed (exit 0)."
+}

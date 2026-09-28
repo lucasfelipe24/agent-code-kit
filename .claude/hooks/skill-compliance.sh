@@ -126,10 +126,13 @@ for skill_name in $(echo "$MATCHING_SKILLS" | tr ',' '\n' | tr -d ' '); do
   fi
 done
 
-# Output reminder as additionalContext (visible to Claude, not blocking)
-echo "SKILL_COMPLIANCE: Edited $BASENAME — relevant skills: $MATCHING_SKILLS"
+# Tell Claude through PostToolUse additionalContext (lib/json-parse.sh →
+# hook_context), without blocking. Plain stdout or stderr at exit 0 only
+# reaches the debug log.
+MESSAGE="SKILL_COMPLIANCE: Edited $BASENAME — relevant skills: $MATCHING_SKILLS"
 if [ -n "$CHECKLIST" ]; then
-  printf '%b\n' "Checklist items to verify:$CHECKLIST"
+  MESSAGE="$MESSAGE"$'\n'"$(printf '%b' "Checklist items to verify:$CHECKLIST")"
 fi
+hook_context PostToolUse "$MESSAGE"
 
 exit 0
