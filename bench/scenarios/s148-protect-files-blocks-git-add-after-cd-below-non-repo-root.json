@@ -1,0 +1,12 @@
+{
+  "name": "s148-protect-files-blocks-git-add-after-cd-below-non-repo-root",
+  "setup_files": {
+    "app/.env": "API_KEY=kitbench-not-a-real-key\n",
+    "app/main.py": "print('hi')\n"
+  },
+  "setup_commands": ["git -C app init -q ."],
+  "hook": ".claude/hooks/protect-files.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "cd app && git add ." } },
+  "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": [".env — Environment file with secrets"] },
+  "notes": "The project root is not a git repository, app/ is: git status in the root failed, so `cd app && git add .` passed (exit 0). `git -C app add .` already blocked."
+}

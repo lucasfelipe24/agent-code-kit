@@ -39,6 +39,10 @@
 #   SH_SEG_START[i]    index in SH_WORDS of segment i's first word
 #   SH_SEG_LEN[i]      number of words in segment i
 #   SH_SEG_STDIN[i]    heredoc / here-string text fed to segment i (unset if none)
+#   SH_SEG_SCOPE[i]    the subshell segment i runs in: "" at the top level, then
+#                      "/1", "/1/2" … — each ( ), $( ), ` ` and bash -c script
+#                      opens a child scope. A `cd` reaches the later segments
+#                      whose scope equals or starts with its own plus "/".
 
 _SH_ASSIGN_RE='^[A-Za-z_][A-Za-z0-9_]*\+?='
 _SH_NL=$'\n'
@@ -50,6 +54,9 @@ shell_segments() {  # COMMAND
   SH_SEG_START=()
   SH_SEG_LEN=()
   SH_SEG_STDIN=()
+  SH_SEG_SCOPE=()
+  _SH_SCOPE=""
+  _SH_NSCOPE=0
   # Byte-wise: ${s:i:1} is O(1) in the C locale, O(i) in a multibyte one.
   _SH_LC_SET=${LC_ALL+1}
   _SH_LC_OLD=${LC_ALL-}
@@ -80,6 +87,9 @@ shell_segments() {  # COMMAND
         ;;
     esac
     if [ -n "$script" ]; then
+      # eval runs in this shell; a shell's script in a child process.
+      _SH_SCOPE=${SH_SEG_SCOPE[$i]-}
+      if [ "${SH_W[0]}" != "eval" ]; then _sh_scope_open; fi
       _sh_lex_string "$script"
     fi
     i=$((i + 1))
@@ -325,12 +335,14 @@ _sh_lex() {  # SUBST — with SUBST=1, return at the ) that closes a $(
       '(')
         _sh_seg_end
         depth=$((depth + 1))
+        _sh_scope_open
         _SH_I=$((_SH_I + 1))
         ;;
       ')')
         _sh_seg_end
         if [ "$depth" -gt 0 ]; then
           depth=$((depth - 1))
+          _sh_scope_close
         elif [ "$subst" = 1 ]; then
           return 0  # _SH_I stays on the ); _sh_subst steps past it
         fi
@@ -393,7 +405,19 @@ _sh_seg_open() {
     SH_NSEG=$((SH_NSEG + 1))
     SH_SEG_START[$seg]=0
     SH_SEG_LEN[$seg]=0
+    SH_SEG_SCOPE[$seg]=$_SH_SCOPE
   fi
+  return 0
+}
+
+_sh_scope_open() {  # enter a new subshell scope
+  _SH_NSCOPE=$((_SH_NSCOPE + 1))
+  _SH_SCOPE="$_SH_SCOPE/$_SH_NSCOPE"
+  return 0
+}
+
+_sh_scope_close() {
+  _SH_SCOPE=${_SH_SCOPE%/*}
   return 0
 }
 
@@ -573,7 +597,9 @@ _sh_dquote() {
 _sh_subst() {
   local start=$_SH_I line=$_SH_LN first=$SH_NSEG text='$(...)'
   _SH_I=$((_SH_I + 2))
+  _sh_scope_open
   _sh_lex 1
+  _sh_scope_close
   _SH_I=$((_SH_I + 1))
   if [ "$_SH_LN" = "$line" ]; then
     text=${_SH_S:start:_SH_I-start}
@@ -609,7 +635,9 @@ _sh_backtick() {
   done
   cur+="\`$inner\`"
   have=1
+  _sh_scope_open
   _sh_lex_string "$inner"
+  _sh_scope_close
 }
 
 _sh_comment() {  # # at a word start runs to the end of the line

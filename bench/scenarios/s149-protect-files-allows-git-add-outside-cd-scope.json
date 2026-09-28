@@ -1,0 +1,27 @@
+{
+  "name": "s149-protect-files-allows-git-add-outside-cd-scope",
+  "setup_files": {
+    "sub/config/.env": "API_KEY=kitbench-not-a-real-key\n",
+    "sub/app.ts": "export const x = 1;\n",
+    "config/app.json": "{}\n"
+  },
+  "setup_commands": ["git init -q ."],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "(cd sub && ls) && git add config" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd sub && cd .. && git add config" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd sub && git add app.ts" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s146-s148: a cd inside ( ) ends with the subshell, a later cd .. moves back, and staging a safe file after a cd is allowed — config/ here is the root's, which holds no secret."
+}

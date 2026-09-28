@@ -1,0 +1,27 @@
+{
+  "name": "s147-protect-files-blocks-git-add-after-cd-into-nested-repo",
+  "setup_files": {
+    "README.md": "# kitbench\n",
+    "nested/.env": "API_KEY=kitbench-not-a-real-key\n",
+    "nested/app.ts": "export const x = 1;\n"
+  },
+  "setup_commands": ["git init -q . && git -C nested init -q ."],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd nested && git add ." } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": [".env — Environment file with secrets"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd {TMPROOT}/nested && git add -A && git commit -m \"feat: init\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "bash -c \"cd nested && git add --all\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "A cd into a separate repository: the root repo's git status only lists nested/ as a whole, so `cd nested && git add .` passed (exit 0) and staged nested/.env. git status now runs where git add does."
+}

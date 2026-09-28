@@ -8,7 +8,9 @@
 # Bash: blocks a git command that would stage a protected file. `git add <path>`
 # is checked by name; `git add -A / . / --all / <dir>` and `git commit -a`
 # against what `git status --porcelain -uall` says they would stage. Lock files
-# are exempt there — they are committed, just never hand-edited.
+# are exempt there — they are committed, just never hand-edited. Both are
+# checked in the directory git runs in: after a `cd <dir>` earlier in the same
+# (sub)shell, and with any `-C <dir>`.
 #
 
 set -euo pipefail
@@ -132,9 +134,70 @@ case "$COMMAND" in
   *) exit 0 ;;
 esac
 
-# git runs in the command's working directory (plus any -C).
+# git runs in the command's working directory, moved by any earlier cd (plus -C).
 CMD_CWD=$(parse_json_field "cwd")
 CMD_CWD="${CMD_CWD:-$ROOT}"
+
+# Where each `cd` moved its (sub)shell: CD_SCOPES[k] (an SH_SEG_SCOPE) → CD_DIRS[k].
+CD_SCOPES=()
+CD_DIRS=()
+
+# seg_dir SCOPE — SEG_DIR = the directory a command in SCOPE runs in: the last
+# cd of that scope or of the nearest enclosing one, else the command's cwd. So
+# `cd sub && git add .` stages from sub/, and `(cd sub && make) && git add .`
+# from the cwd.
+seg_dir() {
+  local scope=$1 k
+  while :; do
+    k=${#CD_SCOPES[@]}
+    while [ "$k" -gt 0 ]; do
+      k=$((k - 1))
+      if [ "${CD_SCOPES[$k]}" = "$scope" ]; then
+        SEG_DIR=${CD_DIRS[$k]}
+        return 0
+      fi
+    done
+    if [ -z "$scope" ]; then
+      SEG_DIR=$CMD_CWD
+      return 0
+    fi
+    scope=${scope%/*}
+  done
+}
+
+# cd_to FROM SCOPE — record where the `cd` in SH_W, run in FROM, moves SCOPE.
+# A target the hook can't know ($VAR, $(…), `cd -`) or that isn't a directory
+# leaves the scope where it was.
+cd_to() {
+  local k=1 n=${#SH_W[@]} target
+  while [ "$k" -lt "$n" ]; do
+    case "${SH_W[$k]}" in
+      --) k=$((k + 1)); break ;;
+      -?*) ;;  # -L, -P, -e, -@
+      *) break ;;
+    esac
+    k=$((k + 1))
+  done
+  if [ "$k" -ge "$n" ]; then
+    target=${HOME-}
+  else
+    target=${SH_W[$k]}
+  fi
+  case "$target" in
+    '~') target=${HOME-} ;;
+    '~/'*) target=${HOME-}/${target:2} ;;
+  esac
+  case "$target" in
+    ''|-|*'$'*|*'`'*|'~'*) return 0 ;;
+    /*) ;;
+    *) target=$1/$target ;;
+  esac
+  if [ -d "$target" ]; then
+    CD_SCOPES+=("$2")
+    CD_DIRS+=("$target")
+  fi
+  return 0
+}
 
 FOUND=""  # "  <path> — <reason>" lines
 
@@ -188,8 +251,13 @@ note_status() {
 shell_segments "$COMMAND"
 i=0
 while [ "$i" -lt "$SH_NSEG" ]; do
+  seg_dir "${SH_SEG_SCOPE[$i]-}"
+  sh_seg_command "$i"
+  if [ "${SH_W[0]-}" = "cd" ]; then
+    cd_to "$SEG_DIR" "${SH_SEG_SCOPE[$i]-}"
+  fi
   if sh_git_segment "$i"; then
-    DIR="$CMD_CWD"
+    DIR="$SEG_DIR"
     case "$SH_GIT_CWD" in
       "") ;;
       /*) DIR="$SH_GIT_CWD" ;;
