@@ -49,8 +49,13 @@ if grep -qE '\b(auth|login|signin|sign-in|session|jwt|oauth|password|credential|
   append "[Auth/security context] This touches authentication or authorization. Treat token handling, session expiry, and permission checks as required test cases. Avoid logging secrets, sessions, or credentials."
 fi
 
-# Payments / billing
-if grep -qE '\b(payment|billing|invoice|refund|checkout|stripe|subscription|charge)' <<< "$LOWER"; then
+# Payments / billing. "checkout" counts only as a store's (a checkout page,
+# flow, session, form or button; a cart) — never git's: "git checkout" and
+# "worktree checkout" are dropped first, and a repo's "checkouts" name no such
+# noun. "stripe" is a whole word (not "striped"); "\bcharge" already leaves out
+# discharge, and "in charge of" is dropped.
+BILLING_TEXT=$(printf '%s' "$LOWER" | sed -E 's/(^|[^[:alnum:]_])(git|worktree)[[:space:]]+checkout/\1/g; s/(^|[^[:alnum:]_])in[[:space:]]+charge/\1/g')
+if grep -qE '\b(payment|billing|invoice|refund|stripe\b|subscription|surcharge|charge)|\bcheckout[-_. ]?(page|flow|session|form|button)|\bcarts?\b' <<< "$BILLING_TEXT"; then
   append "[Billing context] Customer-visible behavior — update tests with any behavior change. Never log full card data or PII. Reconcile any state change with the source of truth (DB, Stripe, ledger)."
 fi
 

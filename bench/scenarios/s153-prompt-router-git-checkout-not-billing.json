@@ -1,0 +1,21 @@
+{
+  "name": "s153-prompt-router-git-checkout-not-billing",
+  "steps": [
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": { "prompt": "Run git checkout -b feat/x, then skip nested git checkouts" },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": { "prompt": "Use a worktree checkout per agent; git checkout page-redesign first" },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": { "prompt": "Add zebra striped rows; who is in charge of the discharge logs?" },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Git talk injected [Billing context]: \"checkout\" matched git checkout, a repo's checkouts and a worktree checkout; \"stripe\" matched striped; \"charge\" matched in charge of. Checkout now counts only as a store's, stripe only as a whole word, and in charge is dropped (discharge never matched)."
+}
