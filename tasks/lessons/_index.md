@@ -29,7 +29,6 @@ The four sections below (Top Rules, Active Rules By Topic, Recently Added, Super
 ### deploy
 
 - **Separate repository access from distributed artifact access** ([2026-09-27-separate-repository-from-distributed-artifact](2026-09-27-separate-repository-from-distributed-artifact.md))
-- **CI npm publish fails EOTP — publish manually after the release cut** ([2026-07-08-release-please-eotp](2026-07-08-release-please-eotp.md))
 
 ### hooks
 
@@ -63,7 +62,6 @@ The four sections below (Top Rules, Active Rules By Topic, Recently Added, Super
 - **A quiet grep fed by a pipe loses its match under pipefail — the guard silently does not fire** ([2026-09-11-pipefail-quiet-grep](2026-09-11-pipefail-quiet-grep.md))
 - **Kit ships bash to macOS + Linux — write portable grep/sed/sort or the macOS CI leg fails** ([2026-07-08-bsd-gnu-portability](2026-07-08-bsd-gnu-portability.md))
 - **Never hand-maintain a second copy of generated config — generate it + drift-check in CI** ([2026-07-08-generated-config-single-source](2026-07-08-generated-config-single-source.md))
-- **CI npm publish fails EOTP — publish manually after the release cut** ([2026-07-08-release-please-eotp](2026-07-08-release-please-eotp.md))
 - **Edited wrong tsconfig and broke the build** ([2026-04-15-example-tsconfig](2026-04-15-example-tsconfig.md))
 
 ### verification

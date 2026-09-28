@@ -1,19 +1,24 @@
 ---
 title: CI npm publish fails EOTP — publish manually after the release cut
 created: 2026-07-08
-updated: 2026-07-08
+updated: 2026-09-28
 tags: [release, npm, ci, 2fa]
 problem_type: process
 source: discovery
 confidence: high
 top_rule: false
-status: active
+status: archived
 related: []
 supersedes: []
 applies_to: [deploy, tooling]
 contradicts: []
-related_decisions: []
+related_decisions: [adr-024, adr-028]
 ---
+
+> **Archived 2026-09-28.** Superseded by ADR-028 (npm publishing is opt-in via
+> `NPM_PUBLISH`) and `RELEASING.md`, which gives the real cause of `EOTP`: a token
+> created without "bypass two-factor authentication". The package is
+> `@lucasfelipe23/agent-code-kit` (ADR-024). Kept for history only.
 
 ## Issue
 
