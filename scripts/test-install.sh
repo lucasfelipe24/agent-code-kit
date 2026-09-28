@@ -50,11 +50,11 @@ upgrade_summary() {
   sed "s/$(printf '\033')\[[0-9;]*m//g" "$1" | grep 'Upgrade summary' || true
 }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-install-test.XXXXXX")"
-STMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-strict-test.XXXXXX")"
-GTMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-generic-test.XXXXXX")"
-DTMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-dotnet-test.XXXXXX")"
-XTMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-safety-test.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-install-test.XXXXXX")"
+STMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-strict-test.XXXXXX")"
+GTMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-generic-test.XXXXXX")"
+DTMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-dotnet-test.XXXXXX")"
+XTMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-safety-test.XXXXXX")"
 trap 'rm -rf "$TMP" "$STMP" "$GTMP" "$DTMP" "$XTMP"' EXIT
 # Make it look like a Node project so a template auto-detects (node-api),
 # and so we can assert the user's own files survive uninstall.
@@ -284,7 +284,49 @@ if command -v python3 >/dev/null 2>&1; then
   ( cd "$TMP" && bash ./scripts/doctor.sh >"$TMP/.doctor7.log" 2>&1 ) || true
   grep -qF "The quality gate is bypassed in .claude/settings" "$TMP/.doctor7.log" \
     && pass "doctor warns when settings.json bypasses the gate" || fail "doctor did not warn about the settings.json bypass"
-  cp "$TMP/.settings.bak" "$TMP/.claude/settings.json"; rm -f "$TMP/.settings.bak"
+  cp "$TMP/.settings.bak" "$TMP/.claude/settings.json"
+  # Prefix rename (ADR-029): doctor renames former-prefix env keys in both
+  # settings files to ACK_* — values kept, an ACK_ key already set wins, a backup
+  # first, no value ever printed — and names exported former-prefix variables by
+  # their ACK_ target only. The former prefix is built at runtime (no residue).
+  L=$(printf '\103\103\113_')
+  settings_edit "d.setdefault('env', {}).update({'${L}PROTECT_BUILD_CONFIGS': '1', '${L}NOTIFY_NTFY_URL': 'https://ntfy.sh/topic-sentinel-7f3', 'ACK_QUALITY_GATE_TIMEOUT': '45', '${L}QUALITY_GATE_TIMEOUT': '99'})"
+  printf '{"env":{"%sNOTIFY_PUSHOVER_TOKEN":"token-sentinel-9d2"}}\n' "$L" > "$TMP/.claude/settings.local.json"
+  ( cd "$TMP" && env "${L}STOP_REVERIFY_BUDGET=77" bash ./scripts/doctor.sh >"$TMP/.doctor10.log" 2>&1 ) || true
+  if python3 - "$TMP" "$L" <<'PY'
+import json, sys
+root, old = sys.argv[1], sys.argv[2]
+s = json.load(open(root + "/.claude/settings.json"))["env"]
+l = json.load(open(root + "/.claude/settings.local.json"))["env"]
+ok = (s.get("ACK_PROTECT_BUILD_CONFIGS") == "1"
+      and s.get("ACK_NOTIFY_NTFY_URL") == "https://ntfy.sh/topic-sentinel-7f3"
+      and s.get("ACK_QUALITY_GATE_TIMEOUT") == "45"
+      and l.get("ACK_NOTIFY_PUSHOVER_TOKEN") == "token-sentinel-9d2"
+      and not any(k.startswith(old) for k in list(s) + list(l)))
+sys.exit(0 if ok else 1)
+PY
+  then
+    pass "doctor renamed former-prefix keys in settings.json and settings.local.json, values kept, ACK_ wins a conflict"
+  else
+    fail "doctor did not migrate the former-prefix settings keys correctly"
+  fi
+  grep -qF ".claude/settings.json: renamed 2 key(s) to ACK_* (1 superseded" "$TMP/.doctor10.log" \
+    && grep -qF ".claude/settings.local.json: renamed 1 key(s) to ACK_*" "$TMP/.doctor10.log" \
+    && pass "doctor reports each migrated file with counts" || fail "doctor's migration report is missing"
+  ls "$TMP/.hook-state/"settings.json.*.bak >/dev/null 2>&1 && ls "$TMP/.hook-state/"settings.local.json.*.bak >/dev/null 2>&1 \
+    && grep -qF "${L}NOTIFY_NTFY_URL" "$TMP/.hook-state/"settings.json.*.bak \
+    && pass "doctor backed up both settings files into .hook-state/ before rewriting" || fail "doctor wrote no backup of the original settings"
+  if grep -qF -e "topic-sentinel-7f3" -e "token-sentinel-9d2" -e "$L" "$TMP/.doctor10.log"; then
+    fail "doctor output leaked a setting value or the former prefix"
+  else
+    pass "doctor output shows no setting value and no former-prefix name"
+  fi
+  grep -qF "rename them to: ACK_STOP_REVERIFY_BUDGET" "$TMP/.doctor10.log" \
+    && pass "doctor names an exported former-prefix variable by its ACK_ target" || fail "doctor did not report the exported former-prefix variable"
+  ( cd "$TMP" && bash ./scripts/doctor.sh >"$TMP/.doctor11.log" 2>&1 ) || true
+  grep -qF "key(s) to ACK_*" "$TMP/.doctor11.log" \
+    && fail "a second doctor run migrated again" || pass "a second doctor run finds nothing to migrate"
+  cp "$TMP/.settings.bak" "$TMP/.claude/settings.json"; rm -f "$TMP/.settings.bak" "$TMP/.claude/settings.local.json"
 fi
 # Brackets in code are INI sections or indexing, not placeholders; a template's
 # [does X for Y] in prose still is one.
@@ -387,10 +429,11 @@ printf '{"//": "an older example"}\n' > "$TMP/$EX"
 set_baseline "$TMP" "$EX" "$(hash_of "$TMP/$EX")"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/.claude/hooks/retired-hook.sh"
 printf '%s\t%s\n' "$(hash_of "$TMP/.claude/hooks/retired-hook.sh")" ".claude/hooks/retired-hook.sh" >> "$TMP/.kit-baseline"
-python3 - "$TMP/.claude/settings.json" <<'PY'
+python3 - "$TMP/.claude/settings.json" "$(printf '\103\103\113_')" <<'PY'
 import json, sys
 f = sys.argv[1]
 d = json.load(open(f))
+d.setdefault("env", {})[sys.argv[2] + "PROTECT_BUILD_CONFIGS"] = "1"  # former prefix (ADR-029)
 for groups in d["hooks"].values():
     for g in groups:
         g["hooks"] = [h for h in g["hooks"] if "secret-scan.sh" not in h.get("command", "")]
@@ -409,7 +452,7 @@ PREVIEW=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$TMP/.diff.log")
 [[ "$PREVIEW" == *"Will be updated (2)"* && "$PREVIEW" == *"~ $H1"* && "$PREVIEW" == *"~ $EX"* ]] \
   && pass "--diff: the kit-changed hook and example will be updated" || fail "--diff did not plan exactly the updates of $H1 and $EX"
 [[ "$PREVIEW" == *"Kept (2)"*"$H2"* ]] && pass "--diff: locally edited hooks are kept" || fail "--diff did not list the kept hooks"
-for needle in "retired-hook.sh" ".claude/hooks/secret-scan.sh" ".claude/hooks/ghost.sh"; do
+for needle in "retired-hook.sh" ".claude/hooks/secret-scan.sh" ".claude/hooks/ghost.sh" "former configuration prefix"; do
   [[ "$PREVIEW" == *"$needle"* ]] && pass "--diff reports $needle" || fail "--diff does not mention $needle"
 done
 if grep -q 'an older kit version' "$TMP/$H1" && [ "$(hash_of "$TMP/.kit-baseline")" = "$BASELINE_BEFORE" ] \
@@ -424,7 +467,7 @@ cmp -s "$KIT_ROOT/$H1" "$TMP/$H1" && cmp -s "$KIT_ROOT/$EX" "$TMP/$EX" \
 [[ "$(upgrade_summary "$TMP/.upgrade4.log")" == *" 2 updated · 0 added · "* ]] \
   && pass "--upgrade counts exactly the 2 updates --diff previewed" || fail "upgrade summary differs from the preview: $(upgrade_summary "$TMP/.upgrade4.log")"
 UPGRADE4=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$TMP/.upgrade4.log")
-for needle in "retired-hook.sh" ".claude/hooks/secret-scan.sh" ".claude/hooks/ghost.sh"; do
+for needle in "retired-hook.sh" ".claude/hooks/secret-scan.sh" ".claude/hooks/ghost.sh" "former configuration prefix"; do
   [[ "$UPGRADE4" == *"$needle"* ]] && pass "--upgrade reports $needle" || fail "--upgrade does not report $needle"
 done
 [ "$(hash_of "$TMP/.claude/settings.json")" = "$SETTINGS_BEFORE" ] \
@@ -515,7 +558,7 @@ else
   fail "strict settings.json is INVALID JSON"
 fi
 # The strict delta: 5 opt-in hooks + the build-config hard-block flag.
-for needle in skill-extract-reminder.sh auto-lint.sh auto-format.sh skill-compliance.sh notify-waiting.sh CCK_PROTECT_BUILD_CONFIGS; do
+for needle in skill-extract-reminder.sh auto-lint.sh auto-format.sh skill-compliance.sh notify-waiting.sh ACK_PROTECT_BUILD_CONFIGS; do
   grep -q "$needle" "$STRICT_SETTINGS" && pass "strict enables $needle" || fail "strict missing $needle"
 done
 # Every hook command is anchored at the project root, so it still resolves after
@@ -703,13 +746,13 @@ kit "$P" .diff2.log --diff && grep -q 'Your installation is up to date' "$P/.dif
   && pass "minimal, then standard: next --diff is up to date" || fail "minimal, then standard: next --diff is not up to date"
 
 echo "== --diff with a relative --local path =="
-# The preview's nested run works from its scratch dir, where ../cck-kit is gone.
+# The preview's nested run works from its scratch dir, where ../ack-kit is gone.
 P="$XTMP/relative"
-ln -s "$KIT_ROOT" "$XTMP/cck-kit"
+ln -s "$KIT_ROOT" "$XTMP/ack-kit"
 fresh "$P"
-if ( cd "$P" && bash ../cck-kit/install.sh --local ../cck-kit --diff >"$P/.diff.log" 2>&1 < /dev/null ) \
+if ( cd "$P" && bash ../ack-kit/install.sh --local ../ack-kit --diff >"$P/.diff.log" 2>&1 < /dev/null ) \
    && grep -q 'Your installation is up to date' "$P/.diff.log"; then
-  pass "--diff works with --local ../cck-kit"
+  pass "--diff works with --local ../ack-kit"
 else
   fail "--diff with a relative --local failed"; tail -3 "$P/.diff.log"
 fi

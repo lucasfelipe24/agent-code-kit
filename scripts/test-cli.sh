@@ -18,8 +18,8 @@ FAILS=0
 pass() { echo "  ✓ $1"; }
 fail() { echo "  ✗ $1"; FAILS=$((FAILS + 1)); }
 
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-cli-test.XXXXXX")"
-STMP="$(mktemp -d "${TMPDIR:-/tmp}/cck-cli-strict.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-cli-test.XXXXXX")"
+STMP="$(mktemp -d "${TMPDIR:-/tmp}/ack-cli-strict.XXXXXX")"
 trap 'rm -rf "$TMP" "$STMP"' EXIT
 
 # --- version (no install needed) --------------------------------------------
@@ -118,6 +118,20 @@ echo "== convert codex =="
 ( cd "$TMP" && bash "$CLI" convert codex >/dev/null 2>&1 ) && pass "convert codex ran" || fail "convert codex failed"
 [ -s "$TMP/AGENTS.md" ] && pass "convert produced non-empty AGENTS.md" || fail "convert AGENTS.md missing/empty"
 [ -d "$TMP/.agents/skills" ] && pass "convert produced .agents/skills/" || fail ".agents/skills/ missing"
+# Prefix rename (ADR-029): a skill exported under the former marker is still the
+# converter's to sweep, a user's own skill (no marker) is kept, and only the ACK
+# marker is written. The former marker name is built at runtime (no residue).
+OLD_MARKER=".$(printf '\143\143\153')-generated"
+mkdir -p "$TMP/.agents/skills/retired-skill" "$TMP/.agents/skills/my-own-skill"
+: > "$TMP/.agents/skills/retired-skill/$OLD_MARKER"
+printf '# mine\n' > "$TMP/.agents/skills/my-own-skill/SKILL.md"
+( cd "$TMP" && bash "$CLI" convert codex >/dev/null 2>&1 ) && pass "convert codex re-ran over a former-marker export" || fail "convert codex failed on re-run"
+[ ! -e "$TMP/.agents/skills/retired-skill" ] && pass "convert swept a skill exported under the former marker" || fail "convert kept a stale former-marker export"
+[ -f "$TMP/.agents/skills/my-own-skill/SKILL.md" ] && pass "convert kept the user's own unmarked skill" || fail "convert removed a user-authored skill"
+LEFT_MARKERS=$(find "$TMP/.agents/skills" -name "$OLD_MARKER" 2>/dev/null)
+[ -z "$LEFT_MARKERS" ] && pass "no former marker remains under .agents/skills" || fail "a former marker survived the conversion"
+[ -f "$TMP/.agents/skills/debug/.ack-generated" ] && pass "exported skills carry the .ack-generated marker" || fail "exported skill lacks .ack-generated"
+rm -rf "$TMP/.agents/skills/my-own-skill"
 
 # --- uninstall: --dry-run changes nothing; --force removes the kit only ------
 echo "== uninstall =="

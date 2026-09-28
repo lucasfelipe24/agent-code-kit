@@ -175,6 +175,22 @@ if local is not None:
     optin = (strict - standard) - local
     if optin:
         print(f"optin\t{len(optin)}")
+
+# Env keys under the kit's former configuration prefix (ADR-029), which the
+# hooks now ignore. Names are counted, never printed with values. The prefix is
+# built from character codes so the tracked tree never spells it.
+legacy = "".join(map(chr, (67, 67, 75, 95)))
+count = 0
+for name in ("settings.json", "settings.local.json"):
+    try:
+        with open(os.path.join(dest, ".claude", name)) as fh:
+            env = json.load(fh).get("env") or {}
+    except (OSError, ValueError, AttributeError):
+        continue
+    if isinstance(env, dict):
+        count += sum(1 for k in env if isinstance(k, str) and k.startswith(legacy))
+if count:
+    print(f"legacy\t{count}")
 PY
 }
 
@@ -183,7 +199,7 @@ PY
 # may be the project's own, so they are shown but not counted).
 ATTENTION_COUNT=0
 print_attention() {
-  local report kind value stale="" listed="" unreg="" dangling="" optin=""
+  local report kind value stale="" listed="" unreg="" dangling="" optin="" legacy=""
   ATTENTION_COUNT=0
   report=$(kit_attention_report "$1" "$2")
   [ -n "$report" ] || return 0
@@ -194,6 +210,7 @@ print_attention() {
       unregistered) unreg="${unreg}       - ${value}"$'\n';       ATTENTION_COUNT=$((ATTENTION_COUNT + 1)) ;;
       dangling)     dangling="${dangling}       - ${value}"$'\n'; ATTENTION_COUNT=$((ATTENTION_COUNT + 1)) ;;
       optin)        optin="$value" ;;
+      legacy)       legacy="$value";                          ATTENTION_COUNT=$((ATTENTION_COUNT + 1)) ;;
     esac
   done <<<"$report"
   if [ -n "$stale" ]; then
@@ -219,6 +236,10 @@ print_attention() {
   if [ -n "$optin" ]; then
     echo ""
     info "$optin opt-in hook(s) from the strict profile are available but not registered (see the kit's .claude/settings.strict.json)."
+  fi
+  if [ -n "$legacy" ]; then
+    echo ""
+    warn "$legacy key(s) in .claude/settings*.json use the kit's former configuration prefix, which the hooks now ignore — run ./scripts/doctor.sh to rename them to ACK_* (values are kept)."
   fi
   return 0
 }

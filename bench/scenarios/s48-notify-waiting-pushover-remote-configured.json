@@ -2,9 +2,9 @@
   "name": "s48-notify-waiting-pushover-remote-configured",
   "hook": ".claude/hooks/notify-waiting.sh",
   "env": {
-    "CCK_NOTIFY_DRY_RUN": "1",
-    "CCK_NOTIFY_PUSHOVER_TOKEN": "app-token",
-    "CCK_NOTIFY_PUSHOVER_USER": "user-key"
+    "ACK_NOTIFY_DRY_RUN": "1",
+    "ACK_NOTIFY_PUSHOVER_TOKEN": "app-token",
+    "ACK_NOTIFY_PUSHOVER_USER": "user-key"
   },
   "payload": {
     "message": "Claude is waiting for your input"

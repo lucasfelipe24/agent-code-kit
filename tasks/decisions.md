@@ -37,6 +37,21 @@ Track important technical decisions here so they don't get lost between sessions
 
 <!-- Add new decisions below this line -->
 
+### ADR-029: Configuration prefix is ACK_ — clean cutover, migrated by doctor
+- **Date**: 2026-09-28
+- **Status**: accepted
+- **Context**: The kit's environment variables (`ACK_PROTECT_BUILD_CONFIGS`, `ACK_QUALITY_GATE_TIMEOUT`, `ACK_STOP_REVERIFY_BUDGET`, the `ACK_NOTIFY_*` set), its internal names and its temp/marker files carried a prefix from an earlier name of the project. The maintainer wants the product to use one prefix, `ACK_` / `ack-`, with no trace of the former one in the tracked tree. Existing installs keep `.claude/settings.json` across upgrades (ADR-017), so a strict install still sets the former build-config key; a rename would silently turn strict build-config blocking off there.
+- **Options**:
+  - A) Dual-read for a release (new name first, former as fallback) — Pros: no install breaks / Cons: the former prefix stays in hooks, docs and tests for the whole window, against the stated goal
+  - B) Clean cutover, hooks read only `ACK_*`; `doctor` renames former keys in `.claude/settings.json` and `settings.local.json` automatically; the upgrade report points at `doctor` — Pros: zero residue; values carried over for installs that run `doctor` / Cons: exported shell variables can't be rewritten, only reported; `doctor` now writes settings
+  - C) Clean cutover with no migration — Pros: least code / Cons: strict installs silently lose build-config blocking; a quality-gate failure noted in the former temp marker is forgotten
+- **Decision**: B, at the maintainer's request, released as a **minor** version by the maintainer's choice even though former names stop working.
+- **Consequences**:
+  - `doctor` renames former-prefix `env` keys to `ACK_*` (values kept; an `ACK_` key already set wins), after a mode-600 backup in `.hook-state/`, and never prints a value. It names exported former-prefix variables by their `ACK_` target only; the user renames those in the shell profile or CI and restarts Claude Code. `--upgrade` still never writes `.claude/settings.json`; it now counts former-prefix keys and points at `doctor`.
+  - State that must not be lost is carried over, not dropped: stop-gate and quality-gate move a quality-gate marker written under the former file prefix into the `ack-gate-*` one (an unrecordable failure keeps blocking), and `convert` sweeps skills exported under the former `-generated` marker. `doctor` removes the former python3-probe cache; the hooks just re-probe (~40 ms).
+  - Code that must recognise the former prefix builds it from character codes, so `scripts/check-prefix-residue.sh` — run by `sync-manifest.sh --check`, i.e. CI's Manifest Sync job and `npm run check` — fails on any occurrence in a tracked path or content, with no allowlist. Git history, released tags and the npm package at 1.22.x are outside that guarantee.
+  - Rollback: forward-fix preferred; in an emergency, pin the previous GitHub tag and restore settings from the `doctor` backups. Aliases are not reintroduced.
+
 ### ADR-028: Releases are GitHub-only; npm publishing is opt-in
 - **Date**: 2026-09-28
 - **Status**: accepted
@@ -322,13 +337,13 @@ Track important technical decisions here so they don't get lost between sessions
   - B) **Fail closed at every boundary**: an error reading or writing gate state blocks, and the state itself is safe under concurrency, slow runs and parallel sessions.
 - **Decision**: B.
   - **Locked, atomic state.** Every load-modify-save of `quality-gate-state.json` holds an exclusive `fcntl.flock` on `quality-gate-state.json.lock` and writes a unique `mkstemp` file renamed into place. A state that exists but can't be parsed raises; stop-gate blocks with how to reset it.
-  - **Unrecordable results block.** A result that can't be recorded makes the run `error`. The file is noted in `.hook-state/quality-gate-unrecorded`, or — when nothing can be written there — in `${TMPDIR:-/tmp}/cck-gate-<key of the project>`, and quality-gate exits 2 so its stderr reaches Claude. stop-gate blocks on noted files until a record exists, and on a `.hook-state` that exists but isn't writable. A project nobody edited is never blocked.
+  - **Unrecordable results block.** A result that can't be recorded makes the run `error`. The file is noted in `.hook-state/quality-gate-unrecorded`, or — when nothing can be written there — in `${TMPDIR:-/tmp}/ack-gate-<key of the project>`, and quality-gate exits 2 so its stderr reaches Claude. stop-gate blocks on noted files until a record exists, and on a `.hook-state` that exists but isn't writable. A project nobody edited is never blocked.
   - **Start-time snapshots.** Runs are numbered at start (`seq`, `runs[scope].started`) with a snapshot of the scope's file hashes (`pending`). A run records nothing once a later run of its scope has started; a scope-wide pass re-covers only files unchanged since it started; the edited file keeps its start-time hash.
   - **Session scope.** Every record carries the payload's `session_id`, and stop-gate answers only for its own session's records; a record or a stop without one counts everywhere. That rule is per record everywhere it is applied, including the bash fallback used when neither python3 nor jq is available: a mixed state — one record from before session scoping, one another session's — must not read as "not ours". session-start no longer deletes gate state; records older than 7 days are pruned. It does clear `last_quality_gate.json` when that summary carries no `session_id`: a pre-v2 summary would otherwise resolve to "-", count as every session's, and block an upgrading project's first stop before it had made an edit. A summary that names a session is kept.
   - **Every checkout the session touched.** stop-gate checks the payload's `cwd`, `CLAUDE_PROJECT_DIR`, and every worktree the session stored results in: quality-gate notes those in `CLAUDE_PROJECT_DIR/.hook-state/quality-gate-roots`. Where results are written stays as ADR-018 decided.
   - **Moved content.** A scope-wide failure whose files were all renamed or deleted blocks until the scope runs again; a per-file failure goes away with its file.
   - **No usable python3.**
-    - python3 counts only if it runs (`lib/python3.sh`); the ~40ms probe caches a "yes" in `${TMPDIR:-/tmp}/cck-python3-usable` while that file stays ours and newer than the python3 it names, and never caches a "no". Without a usable python3, quality-gate keeps a plain per-file log, `quality-gate-files.tsv`, with a content stamp (`cksum`, else the mtime). stop-gate reads it with bash alone: the latest line per file wins, and changed files are re-verified.
+    - python3 counts only if it runs (`lib/python3.sh`); the ~40ms probe caches a "yes" in `${TMPDIR:-/tmp}/ack-python3-usable` while that file stays ours and newer than the python3 it names, and never caches a "no". Without a usable python3, quality-gate keeps a plain per-file log, `quality-gate-files.tsv`, with a content stamp (`cksum`, else the mtime). stop-gate reads it with bash alone: the latest line per file wins, and changed files are re-verified.
     - A per-file state that needs python3 to read blocks the session it holds records for; without jq that judgement is made per record, and any record visible to every session makes the state relevant.
     - A `.py` edit with neither ruff nor a working python3 is `skipped (tool-unavailable)`.
     - Helper I/O is forced to UTF-8.
@@ -336,7 +351,7 @@ Track important technical decisions here so they don't get lost between sessions
     - The check's process group is killed on timeout, when the hook is signalled (TERM/INT/HUP), or when the hook disappears — not after a normal exit, so build servers stay warm.
     - Output goes to a file, so a leftover can't hold the hook. The perl fallback runs the check in its own group.
   - **Stop budget.**
-    - Re-verification stops after `CCK_STOP_REVERIFY_BUDGET` (300s), and each re-run is capped by what is left. Claude Code kills a Stop hook at its timeout (600s by default) and a killed hook doesn't block, so the budget stays well under it.
+    - Re-verification stops after `ACK_STOP_REVERIFY_BUDGET` (300s), and each re-run is capped by what is left. Claude Code kills a Stop hook at its timeout (600s by default) and a killed hook doesn't block, so the budget stays well under it.
     - Stale files not re-verified in time block.
     - Any unexpected error in stop-gate exits 2.
   - **Project scope.** `commands.json` applies only to files under the project root.
@@ -378,7 +393,7 @@ Track important technical decisions here so they don't get lost between sessions
   - B) **Strict, stdlib-only validation** in `lib/project-commands.sh`, shared by the gate, stop-gate and doctor — known keys plus `"//"` comments and the legacy `commands` wrapper; `""` means "off".
   - C) **A JSON Schema file with a validator.** Standard, but it adds a dependency for six keys.
 - **Decision**: B.
-  - Keys: `typecheck`, `lint` (fast — the per-edit gate), `test`, `build`, `smoke` (full — `/ship` and the qa-reviewer, never per edit), `timeout` (seconds for the per-edit check; `CCK_QUALITY_GATE_TIMEOUT` wins).
+  - Keys: `typecheck`, `lint` (fast — the per-edit gate), `test`, `build`, `smoke` (full — `/ship` and the qa-reviewer, never per edit), `timeout` (seconds for the per-edit check; `ACK_QUALITY_GATE_TIMEOUT` wins).
   - Absent → auto-detect. `""` → the check is off: the gate records `skipped (disabled)` — NOT verified, never passed, nothing guessed — and `/ship` / the qa-reviewer report the step as not applicable.
   - An unknown key, a non-string command, or a non-positive `timeout` is a config `error`: the gate blocks and `doctor.sh` fails, naming the problem.
 - **Consequences**:
@@ -419,7 +434,7 @@ Track important technical decisions here so they don't get lost between sessions
 - **Decision**: B, in a shared `lib/roots.sh` that also separates the package root (where a check runs) from the project root (where its result is stored).
   - Only same-repository worktrees move. A nested independent repo or a submodule keeps the project's state, where `stop-gate.sh` reads it.
   - Session-level metrics (`bash-budget.json`) stay in `CLAUDE_PROJECT_DIR/.hook-state/`, where `session-start.sh` resets and `session-end.sh` reads them.
-  - Time limit: `lib/run-with-timeout.sh` starts the check in its own process group and on timeout sends the group SIGTERM, then SIGKILL, and exits 124. Fallbacks: GNU `timeout -k`, a perl alarm, and — only with none available — an unbounded run with a warning. A timeout is recorded as a new status, `timeout`, which blocks like `failed`. `CCK_QUALITY_GATE_TIMEOUT` sets the limit (default 30s).
+  - Time limit: `lib/run-with-timeout.sh` starts the check in its own process group and on timeout sends the group SIGTERM, then SIGKILL, and exits 124. Fallbacks: GNU `timeout -k`, a perl alarm, and — only with none available — an unbounded run with a warning. A timeout is recorded as a new status, `timeout`, which blocks like `failed`. `ACK_QUALITY_GATE_TIMEOUT` sets the limit (default 30s).
 - **Consequences**:
   - The main session's stop no longer sees a subagent worktree's gate result; the merge-back re-verify is what checks it. Scorecard metrics for edits made inside a worktree land in that worktree.
   - KitBench gains `steps`, `setup_commands`, `cwd`, `max_seconds` and `no_process`, plus s51 (worktree isolation), s52 (fix unblocks stop) and s53 (timeout kills the check). s51 and s53 fail against the previous hooks.
@@ -457,11 +472,11 @@ Track important technical decisions here so they don't get lost between sessions
   - C) **Scope by intent + profile** — keep auth-logic, dependency, migration, and CI blocking always; exclude presentational UI from the auth match; make build-config blocking opt-in per profile.
 - **Decision**: C.
   - **Auth:** skip paths under `*/components/*` (UI, not auth logic). Backend auth logic (`src/auth/`, `lib/auth/`, `middleware/auth*`, `*/security/*`, `*/permissions/*`) still blocks.
-  - **Build configs:** hard-block only when `CCK_PROTECT_BUILD_CONFIGS=1`. The strict profile sets it via `settings.json → env`; the standard profile emits a non-blocking heads-up instead.
+  - **Build configs:** hard-block only when `ACK_PROTECT_BUILD_CONFIGS=1`. The strict profile sets it via `settings.json → env`; the standard profile emits a non-blocking heads-up instead.
   - Dependency manifests, migrations/schema, and CI workflows block unconditionally in every profile — unchanged.
 - **Consequences**:
-  - `protect-changes.sh` gains a `*/components/*` skip and the env gate; the header documents `CCK_PROTECT_BUILD_CONFIGS`.
-  - The strict profile's settings add `"env": { "CCK_PROTECT_BUILD_CONFIGS": "1" }`. (Originally an embedded `generate_strict_settings()` heredoc in `install.sh`; later extracted to the committed `.claude/settings.strict.json`, generated from `settings.json` + the strict delta via `scripts/gen-strict-settings.sh` and drift-checked in CI.)
+  - `protect-changes.sh` gains a `*/components/*` skip and the env gate; the header documents `ACK_PROTECT_BUILD_CONFIGS`.
+  - The strict profile's settings add `"env": { "ACK_PROTECT_BUILD_CONFIGS": "1" }`. (Originally an embedded `generate_strict_settings()` heredoc in `install.sh`; later extracted to the committed `.claude/settings.strict.json`, generated from `settings.json` + the strict delta via `scripts/gen-strict-settings.sh` and drift-checked in CI.)
   - KitBench gains s23 (strict blocks build config), s24 (standard warns), s25 (UI component allowed); s06 (backend auth still blocks) unchanged.
   - README hooks table marks build-config blocking as strict-only.
 

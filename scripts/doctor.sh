@@ -75,6 +75,65 @@ print(" ".join(out))
 PY
 }
 
+# _doctor_migrate_prefix <former prefix> — rename env keys under the former
+# prefix to ACK_* in .claude/settings.json and settings.local.json. Per changed
+# file prints migrated<TAB>file<TAB>renamed<TAB>superseded<TAB>backup, or
+# error<TAB>file. Never prints a value. The backup goes to .hook-state/ (which the
+# hooks keep git-ignored), mode 600, because settings.local.json may hold tokens.
+_doctor_migrate_prefix() {
+  python3 - "$1" <<'PY' || true
+import json, os, shutil, sys, tempfile, time
+
+old = sys.argv[1]
+for path in (".claude/settings.json", ".claude/settings.local.json"):
+    if not os.path.isfile(path) or os.path.islink(path):
+        continue
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except Exception:
+        print(f"error\t{path}")
+        continue
+    env = data.get("env") if isinstance(data, dict) else None
+    if not isinstance(env, dict) or not any(k.startswith(old) for k in env):
+        continue
+    new_env, moved, dropped = {}, 0, 0
+    for key, value in env.items():
+        if key.startswith(old):
+            target = "ACK_" + key[len(old):]
+            if target in env:
+                dropped += 1
+                continue
+            new_env[target] = value
+            moved += 1
+        else:
+            new_env[key] = value
+    data["env"] = new_env
+    tmp = None
+    try:
+        os.makedirs(".hook-state", exist_ok=True)
+        ignore = os.path.join(".hook-state", ".gitignore")
+        if not os.path.exists(ignore):
+            with open(ignore, "w") as fh:
+                fh.write("*\n!.gitignore\n")
+        backup = os.path.join(".hook-state", f"{os.path.basename(path)}.{time.strftime('%Y%m%d%H%M%S')}.bak")
+        shutil.copyfile(path, backup)
+        os.chmod(backup, 0o600)
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".settings.", suffix=".tmp")
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh, indent=2)
+            fh.write("\n")
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except Exception:
+        if tmp and os.path.exists(tmp):
+            os.unlink(tmp)
+        print(f"error\t{path}")
+        continue
+    print(f"migrated\t{path}\t{moved}\t{dropped}\t{backup}")
+PY
+}
+
 echo ""
 echo "  Agent Code Kit — Doctor"
 echo "  ========================"
@@ -235,6 +294,37 @@ if [ -f ".claude/settings.json" ]; then
     fi
   else
     warn "Cannot validate JSON (no python3 or node found)"
+  fi
+
+  # Configuration prefix rename (ADR-029): every kit variable is ACK_* now and
+  # the former names are ignored. Rename them in .claude/settings.json and
+  # settings.local.json (backup first, values untouched and never printed; an
+  # ACK_ key already set wins), and point out exported ones, which only the user
+  # can rename. The former prefix is built from character codes so the tracked
+  # tree never spells it.
+  LEGACY_ENV_PREFIX=$(printf '\103\103\113_')
+  if command -v python3 >/dev/null 2>&1; then
+    while IFS=$'\t' read -r kind file moved dropped backup; do
+      case "$kind" in
+        migrated)
+          note=""
+          if [ "$dropped" != "0" ]; then note=" ($dropped superseded by an ACK_ key already set)"; fi
+          warn "$file: renamed $moved key(s) to ACK_*$note — backup in $backup; restart Claude Code to apply" ;;
+        error)
+          fail "$file: couldn't migrate the former-prefix keys to ACK_* (unreadable JSON or write failed) — the file is unchanged" ;;
+      esac
+    done < <(_doctor_migrate_prefix "$LEGACY_ENV_PREFIX")
+  fi
+  LEGACY_TARGETS=""
+  while IFS= read -r var; do
+    case "$var" in "$LEGACY_ENV_PREFIX"*) LEGACY_TARGETS="$LEGACY_TARGETS ACK_${var#"$LEGACY_ENV_PREFIX"}" ;; esac
+  done < <(compgen -e)
+  if [ -n "$LEGACY_TARGETS" ]; then
+    warn "This shell exports variable(s) under the kit's former prefix, which the hooks ignore — rename them to:$LEGACY_TARGETS (shell profile, CI), then restart Claude Code"
+  fi
+  OLD_PY_CACHE="${TMPDIR:-/tmp}/$(printf '\143\143\153')-python3-usable"
+  if [ -f "$OLD_PY_CACHE" ] && [ ! -L "$OLD_PY_CACHE" ] && [ -O "$OLD_PY_CACHE" ]; then
+    rm -f "$OLD_PY_CACHE"
   fi
 
   # Check for orphan hooks (hook files not referenced in settings.json).
@@ -498,7 +588,7 @@ if ! command -v python3 >/dev/null 2>&1; then
 elif [ ! -f "$HOOKS_DIR/quality-gate.sh" ] || [ ! -f "$HOOKS_DIR/stop-gate.sh" ]; then
   warn "Skipped — quality-gate.sh / stop-gate.sh not installed"
 else
-  BT=$(mktemp -d "${TMPDIR:-/tmp}/cck-doctor.XXXXXX")
+  BT=$(mktemp -d "${TMPDIR:-/tmp}/ack-doctor.XXXXXX")
   trap 'rm -rf "$BT"' EXIT
   # A bypass left on in this shell must not fake a result.
   bt_edit() {  # <project> <file> — what Claude Code sends after an Edit
@@ -531,7 +621,7 @@ else
   fi
 
   if [ -f "$HOOKS_DIR/session-start.sh" ]; then
-    printf '{"source":"compact","session_id":"cck-doctor"}' \
+    printf '{"source":"compact","session_id":"ack-doctor"}' \
       | CLAUDE_PROJECT_DIR="$P" bash "$HOOKS_DIR/session-start.sh" >/dev/null 2>&1 || true
     BT_RC=$(bt_stop "$P" "$P")
     if [ "$BT_RC" = "2" ]; then
@@ -554,9 +644,9 @@ else
   # the scratch commit can't be blocked by the user's own git setup.
   R="$BT/repo"; W="$BT/wt"
   if command -v git >/dev/null 2>&1 && mkdir -p "$R" && ( cd "$R" && git init -q . \
-       && git -c user.name=cck-doctor -c user.email=cck-doctor@example.invalid \
+       && git -c user.name=ack-doctor -c user.email=ack-doctor@example.invalid \
             -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -q --allow-empty -m init \
-       && git worktree add -q -b cck-doctor-wt "$W" ) >/dev/null 2>&1; then
+       && git worktree add -q -b ack-doctor-wt "$W" ) >/dev/null 2>&1; then
     mkdir -p "$W/src"
     printf 'def broken(:\n' > "$W/src/app.py"
     bt_edit "$R" "$W/src/app.py"

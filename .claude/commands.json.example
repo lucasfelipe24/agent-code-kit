@@ -5,7 +5,7 @@
   "//dotnet": ".NET: point typecheck at the whole solution, e.g. \"dotnet build App.sln -nologo -v q\". A declared command counts for every edited file, so one that builds a single project would record edits in the other projects as verified. Without a declared command the gate builds the nearest .csproj itself (restoring on the first build; 120s limit unless a timeout is set).",
   "//lint": "FAST, per edit: runs for JS/Python/Go/Rust edits, and for typed ones when typecheck is absent or \"\". If it lints the whole repo it runs on every code edit — keep it fast or scope it.",
   "lint": "pnpm -w lint",
-  "//timeout": "Optional: seconds the per-edit check may run before its process group is killed and the edit is recorded as 'timeout' — e.g. \"timeout\": 90. Default 30 (120 for a .NET build). The CCK_QUALITY_GATE_TIMEOUT env var wins.",
+  "//timeout": "Optional: seconds the per-edit check may run before its process group is killed and the edit is recorded as 'timeout' — e.g. \"timeout\": 90. Default 30 (120 for a .NET build). The ACK_QUALITY_GATE_TIMEOUT env var wins.",
   "//test": "FULL, never per edit: the whole suite. /ship and the qa-reviewer use it as the authoritative gate.",
   "test": "pnpm -w test",
   "//build": "FULL, never per edit: the production build, for /ship.",

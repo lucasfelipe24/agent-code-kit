@@ -19,7 +19,7 @@
 # (unwritable or unreadable state, a full disk): the file is noted where
 # stop-gate.sh finds it, and the hook exits 2 so its stderr reaches Claude.
 #
-# Statuses: passed · failed · timeout (killed at CCK_QUALITY_GATE_TIMEOUT, 30s,
+# Statuses: passed · failed · timeout (killed at ACK_QUALITY_GATE_TIMEOUT, 30s,
 # together with its whole process group) · error (command not found or not
 # executable, invalid .claude/commands.json) · skipped (no check applies —
 # recorded with a reason and reported as NOT verified, never as passed).
@@ -113,6 +113,7 @@ UNRECORDED=""
 # marker's path; fails if it can't be written (or isn't safely ours).
 note_marker() {
   local marker
+  gate_marker_migrate "$SESSION_DIR" || true
   marker=$(gate_marker_path "$SESSION_DIR")
   printf '%s' "$marker"
   [ ! -L "$marker" ] && { [ ! -e "$marker" ] || [ -O "$marker" ]; } \
@@ -171,7 +172,7 @@ fi
 
 # Hard time limit per check (lib/run-with-timeout.sh): past it the check's whole
 # process group is killed and the run is recorded as "timeout", not "failed".
-GATE_TIMEOUT="${CCK_QUALITY_GATE_TIMEOUT:-30}"
+GATE_TIMEOUT="${ACK_QUALITY_GATE_TIMEOUT:-30}"
 case "$GATE_TIMEOUT" in ''|*[!0-9]*|0) GATE_TIMEOUT=30 ;; esac
 
 # run_check NAME KIND SCOPE_DIR CMD [ARGS...]
@@ -186,9 +187,9 @@ run_check() {
   TOOL_USED="$1"; SCOPE_KIND="$2"; SCOPE_DIR="$3"; shift 3
   local err
   # stop-gate.sh caps a re-verification by what is left of its time budget.
-  case "${CCK_GATE_TIMEOUT_CAP:-}" in
+  case "${ACK_GATE_TIMEOUT_CAP:-}" in
     ''|*[!0-9]*|0) ;;
-    *) if [ "$GATE_TIMEOUT" -gt "$CCK_GATE_TIMEOUT_CAP" ]; then GATE_TIMEOUT="$CCK_GATE_TIMEOUT_CAP"; CAPPED=1; fi ;;
+    *) if [ "$GATE_TIMEOUT" -gt "$ACK_GATE_TIMEOUT_CAP" ]; then GATE_TIMEOUT="$ACK_GATE_TIMEOUT_CAP"; CAPPED=1; fi ;;
   esac
   if python3_usable; then
     if ! RUN_ID=$(gate_state_start "$STATE_V2" "$FILE_PATH" "$SCOPE_DIR :: $TOOL_USED" "$SCOPE_KIND" "$TOOL_USED" "$SID"); then
@@ -307,7 +308,7 @@ else
   if [ "$IN_PROJECT" = 1 ]; then
     DECL_TIMEOUT=$(project_commands_timeout "$PROJECT_ROOT")
   fi
-  if [ -z "${CCK_QUALITY_GATE_TIMEOUT:-}" ] && [ -n "$DECL_TIMEOUT" ]; then
+  if [ -z "${ACK_QUALITY_GATE_TIMEOUT:-}" ] && [ -n "$DECL_TIMEOUT" ]; then
     GATE_TIMEOUT="$DECL_TIMEOUT"
   fi
 
@@ -381,7 +382,7 @@ else
           skip "no-config" "no .csproj or .sln found for $BASENAME"
         else
           # A cold build is slow: unless a limit was set (env or commands.json), allow 120s.
-          [ -n "${CCK_QUALITY_GATE_TIMEOUT:-}" ] || [ -n "$DECL_TIMEOUT" ] || GATE_TIMEOUT=120
+          [ -n "${ACK_QUALITY_GATE_TIMEOUT:-}" ] || [ -n "$DECL_TIMEOUT" ] || GATE_TIMEOUT=120
           DOTNET_DIR=$(dirname "$DOTNET_TARGET")
           DOTNET_ARGS="-nologo -v q"
           # --no-restore only once restored: on a fresh clone it fails with a
@@ -550,7 +551,7 @@ case "$STATUS" in
     ;;
   timeout)
     echo "Quality gate TIMED OUT ($TOOL_USED): killed after ${GATE_TIMEOUT}s. See $STATE_FILE." >&2
-    echo "Completion will be blocked by stop-gate.sh. If the check is legitimately slow, raise CCK_QUALITY_GATE_TIMEOUT." >&2
+    echo "Completion will be blocked by stop-gate.sh. If the check is legitimately slow, raise ACK_QUALITY_GATE_TIMEOUT." >&2
     ;;
   error)
     echo "Quality gate ERROR ($TOOL_USED): $REASON. See $STATE_FILE." >&2

@@ -25,7 +25,7 @@ A guardrail that fires on too broad a pattern produces false-positive fatigue. U
 
 ## Rule
 
-Scope guardrails by intent and profile, not blanket paths. Keep hard blocks for genuine risk (auth logic, dependencies, migrations, CI); exclude presentational paths (`*/components/*`); make the most aggressive checks opt-in per profile (build-config block only when `CCK_PROTECT_BUILD_CONFIGS=1`, set by the strict profile). A gate users bypass wholesale is worse than a narrower gate they keep.
+Scope guardrails by intent and profile, not blanket paths. Keep hard blocks for genuine risk (auth logic, dependencies, migrations, CI); exclude presentational paths (`*/components/*`); make the most aggressive checks opt-in per profile (build-config block only when `ACK_PROTECT_BUILD_CONFIGS=1`, set by the strict profile). A gate users bypass wholesale is worse than a narrower gate they keep.
 
 ## Verification
 

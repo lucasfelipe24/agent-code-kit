@@ -15,7 +15,7 @@
 # approval must be recorded in tasks/decisions.md (ADR template).
 #
 # Build configs (tsconfig, next.config, tailwind.config, Dockerfile, …) only
-# hard-block when CCK_PROTECT_BUILD_CONFIGS=1 (set by the strict profile). In
+# hard-block when ACK_PROTECT_BUILD_CONFIGS=1 (set by the strict profile). In
 # the standard profile they emit a non-blocking heads-up instead, since they are
 # edited routinely. Dependency manifests, migrations, auth logic, and CI
 # workflows always block regardless of profile.
@@ -301,16 +301,16 @@ if [ "$BLOCKED" = false ]; then
 fi
 
 # Build system / core architecture configs (basename match). Blocking these is
-# opt-in: the strict profile sets CCK_PROTECT_BUILD_CONFIGS=1, but in the standard
+# opt-in: the strict profile sets ACK_PROTECT_BUILD_CONFIGS=1, but in the standard
 # profile they are edited routinely, so we advise without blocking.
 if [ "$BLOCKED" = false ]; then
   case "$BASENAME" in
     Dockerfile|docker-compose.yml|docker-compose.yaml|Makefile|tsconfig.json|tsconfig.*.json|vite.config.ts|vite.config.js|next.config.js|next.config.mjs|next.config.ts|webpack.config.js|rollup.config.js|tailwind.config.js|tailwind.config.ts|Directory.Build.props|Directory.Build.targets|global.json|*.sln|*.slnx|nuget.config|NuGet.Config)
-      if [ "${CCK_PROTECT_BUILD_CONFIGS:-0}" = "1" ]; then
+      if [ "${ACK_PROTECT_BUILD_CONFIGS:-0}" = "1" ]; then
         BLOCKED=true
         REASON="build config — core architecture change, requires plan and approval"
       else
-        advise "protect-changes: heads-up — '$FILE_PATH' is a build config. Treat structural changes (toolchain, build target, module system) as a Protected Change per CLAUDE.md. Set CCK_PROTECT_BUILD_CONFIGS=1 (strict profile) to enforce a hard stop."
+        advise "protect-changes: heads-up — '$FILE_PATH' is a build config. Treat structural changes (toolchain, build target, module system) as a Protected Change per CLAUDE.md. Set ACK_PROTECT_BUILD_CONFIGS=1 (strict profile) to enforce a hard stop."
       fi
       ;;
   esac

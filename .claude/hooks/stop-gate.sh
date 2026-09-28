@@ -28,7 +28,7 @@
 # Stale files — changed after their check by Bash, a formatter or codegen, or
 # whose check never finished — are re-verified here by re-running quality-gate.sh
 # on them (one file per check scope, at most 3), within a time budget
-# (CCK_STOP_REVERIFY_BUDGET, 300s — Claude Code kills a Stop hook at its own
+# (ACK_STOP_REVERIFY_BUDGET, 300s — Claude Code kills a Stop hook at its own
 # timeout, 600s by default, and a killed hook doesn't block). A stale file not
 # re-verified in time blocks.
 #
@@ -75,10 +75,11 @@ SID="${SID//[[:space:]]/_}"
 SID="${SID:--}"
 ROOT=$(hook_project_root "$(parse_json_field "cwd")")
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+gate_marker_migrate "$PROJECT_DIR" || true
 MARKER=$(gate_marker_path "$PROJECT_DIR")
 TAB=$'\t'
 NL=$'\n'
-BUDGET="${CCK_STOP_REVERIFY_BUDGET:-300}"
+BUDGET="${ACK_STOP_REVERIFY_BUDGET:-300}"
 case "$BUDGET" in ''|*[!0-9]*) BUDGET=300 ;; esac
 BUDGET_SPENT=0
 
@@ -313,7 +314,7 @@ reverify() {
     return 0
   fi
   printf '{"tool_name":"Edit","tool_input":{"file_path":"%s"},"session_id":"%s"}' "$(json_str "$1")" "$(json_str "$SID")" \
-    | CCK_GATE_TIMEOUT_CAP="$left" bash "$HOOK_DIR/quality-gate.sh" >/dev/null 2>&1 || true
+    | ACK_GATE_TIMEOUT_CAP="$left" bash "$HOOK_DIR/quality-gate.sh" >/dev/null 2>&1 || true
 }
 
 BLOCK_LIST=""
@@ -344,7 +345,7 @@ check_root() {
     lines=$(root_lines "$root")
   fi
   if [ "$BUDGET_SPENT" = 1 ]; then
-    note=" — stop-gate's re-verification budget (${BUDGET}s, CCK_STOP_REVERIFY_BUDGET) ran out"
+    note=" — stop-gate's re-verification budget (${BUDGET}s, ACK_STOP_REVERIFY_BUDGET) ran out"
   fi
 
   while IFS=$'\t' read -r kind a b c d; do

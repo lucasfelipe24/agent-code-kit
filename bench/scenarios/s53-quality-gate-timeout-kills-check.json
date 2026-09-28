@@ -1,7 +1,7 @@
 {
   "name": "s53-quality-gate-timeout-kills-check",
   "hook": ".claude/hooks/quality-gate.sh",
-  "env": { "CCK_QUALITY_GATE_TIMEOUT": "1" },
+  "env": { "ACK_QUALITY_GATE_TIMEOUT": "1" },
   "setup_files": {
     ".claude/commands.json": "{\"lint\": \"bash -c 'exec -a kitbench-leak-{TMPROOT} sleep 30' & bash -c 'exec -a kitbench-leak-{TMPROOT} sleep 30'\"}",
     "src/x.py": "x = 1\n"
