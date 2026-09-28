@@ -76,7 +76,7 @@ These are sensible defaults. Override them in `CLAUDE.project.md` if your team h
 ## Imports
 
 - Group imports: stdlib/framework → external deps → internal modules
-- Prefer named exports over default exports (easier to grep)
+- Prefer named exports over default exports (easier to grep) — except files the framework requires to default-export (e.g. Next.js `page`, `layout`, `loading`, `error`, `template`, `not-found`, Pages Router pages)
 - No circular imports — if you need one, your architecture needs work
 - Import from the public API of a module, not from internal files
 
