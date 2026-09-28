@@ -142,13 +142,14 @@ jobs:
           report_status "Link Check" "$LC_RESULT"
           report_status "Template Validation" "$TV_RESULT"
 
-  # Auto-publish to npm whenever release-please cuts a new release.
+  # Publish to npm when release-please cuts a release and the repository
+  # variable NPM_PUBLISH is "true" (unset by default: releases are GitHub-only).
   # Requires NPM_TOKEN secret (https://www.npmjs.com/settings/<user>/tokens
   # → Granular Access Token, scope to @lucasfelipe23/agent-code-kit, write).
   publish-npm:
     name: Publish to npm
     needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' && vars.NPM_PUBLISH == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

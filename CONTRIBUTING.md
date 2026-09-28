@@ -22,10 +22,10 @@ git push -u origin fix/short-description
 
 ## Releases
 
-release-please keeps a `chore(main): release X.Y.Z` pull request open with the version bump and changelog. Merging it tags the release, creates the GitHub release and publishes the package to npm.
+release-please keeps a `chore(main): release X.Y.Z` pull request open with the version bump and changelog. Merging it tags the release and creates the GitHub release. Publishing to npm is off until the repository variable `NPM_PUBLISH` is set to `true` (ADR-028, [RELEASING.md](RELEASING.md)).
 
 - `fix:` makes a patch release and `feat:` a minor one. `docs:`, `chore:` and `test:` don't make a release on their own.
-- **The npm page only changes when a release is published.** A README change reaches users with the next `fix:` or `feat:` release.
+- **The npm page only changes when a release is published to npm**, which is off for now (ADR-028). The GitHub README is always current.
 
 npm token setup, 2FA and recovering from a failed publish are covered in [RELEASING.md](RELEASING.md).
 

@@ -6,15 +6,17 @@ How `@lucasfelipe23/agent-code-kit` ships, and what to do when a release fails. 
 
 1. Merge work into `main` with squash — each pull request title becomes one Conventional Commit.
 2. release-please keeps a pull request titled `chore(main): release X.Y.Z` open whenever `main` has unreleased `fix:` or `feat:` commits. It bumps the version in `package.json`, `VERSION`, `.release-please-manifest.json` and `.claude-plugin/`, and writes the changelog.
-3. Review that pull request and merge it (squash). The Release workflow then creates the tag and the GitHub release, and publishes the package to npm.
-4. Check the result:
+3. Review that pull request and merge it (squash). The Release workflow then creates the tag and the GitHub release.
+4. Check the result: `gh release view vX.Y.Z`.
 
-   ```bash
-   npm view @lucasfelipe23/agent-code-kit version
-   npx --yes @lucasfelipe23/agent-code-kit@X.Y.Z --version
-   ```
+`docs:`, `chore:` and `test:` commits don't make a release on their own.
 
-`docs:`, `chore:` and `test:` commits don't make a release on their own, and the npm package page only changes when one is published.
+**Publishing to npm is off** (ADR-028). The `publish-npm` job in `.github/workflows/release.yml` runs only when the repository variable `NPM_PUBLISH` is `true`, so releases are GitHub-only and the npm package stays at its last published version. To turn publishing back on, set the `NPM_TOKEN` secret (§2) and run `gh variable set NPM_PUBLISH --body true`; the next release then publishes, and you can check it with:
+
+```bash
+npm view @lucasfelipe23/agent-code-kit version
+npx --yes @lucasfelipe23/agent-code-kit@X.Y.Z --version
+```
 
 ## 2. One-time setup
 
