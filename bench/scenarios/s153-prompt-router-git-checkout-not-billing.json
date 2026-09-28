@@ -3,19 +3,44 @@
   "steps": [
     {
       "hook": ".claude/hooks/prompt-router.sh",
-      "payload": { "prompt": "Run git checkout -b feat/x, then skip nested git checkouts" },
-      "expect": { "exit_code": 0, "stdout_empty": true }
+      "payload": {
+        "prompt": "Run git checkout -b feat/x, then skip nested git checkouts"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
     },
     {
       "hook": ".claude/hooks/prompt-router.sh",
-      "payload": { "prompt": "Use a worktree checkout per agent; git checkout page-redesign first" },
-      "expect": { "exit_code": 0, "stdout_empty": true }
+      "payload": {
+        "prompt": "Use a worktree checkout per agent; git checkout page-redesign first"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
     },
     {
       "hook": ".claude/hooks/prompt-router.sh",
-      "payload": { "prompt": "Add zebra striped rows; who is in charge of the discharge logs?" },
-      "expect": { "exit_code": 0, "stdout_empty": true }
+      "payload": {
+        "prompt": "Add zebra striped rows; who is in charge of the discharge logs?"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "hook": ".claude/hooks/prompt-router.sh",
+      "payload": {
+        "prompt": "Move the repository branch checkout flow into a helper"
+      },
+      "expect": {
+        "exit_code": 0,
+        "stdout_empty": true
+      }
     }
   ],
-  "notes": "Git talk injected [Billing context]: \"checkout\" matched git checkout, a repo's checkouts and a worktree checkout; \"stripe\" matched striped; \"charge\" matched in charge of. Checkout now counts only as a store's, stripe only as a whole word, and in charge is dropped (discharge never matched)."
+  "notes": "Git and repository checkout wording must not inject billing context; striped/discharge/in charge remain guards for keyword substrings."
 }

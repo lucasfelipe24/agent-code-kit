@@ -19,17 +19,10 @@ HOOK_LIB="$(cd "$(dirname "$0")/lib" 2>/dev/null && pwd)"
 # absent — through it the prompt read as empty and no reminder ever fired.
 source "$HOOK_LIB/python3.sh"
 
-# Extract the prompt text (Claude Code passes it under "prompt").
-# Use python3 for robust parsing; fall back to jq, then to grep-based extraction.
-PROMPT=""
-if python3_usable; then
-  PROMPT=$(printf '%s' "$INPUT" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("prompt",""))' 2>/dev/null || true)
-elif command -v jq &>/dev/null; then
-  PROMPT=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null || true)
-else
-  # Best-effort: strip the JSON envelope around "prompt"
-  PROMPT=$(printf '%s' "$INPUT" | grep -oE '"prompt"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*:[[:space:]]*"//;s/"$//' || true)
-fi
+# Extract the prompt text (Claude Code passes it under "prompt"). The shared
+# parser uses jq, a usable python3, or an escape-aware pure-bash fallback.
+source "$HOOK_LIB/json-parse.sh"
+PROMPT=$(parse_json_field "prompt")
 
 [ -z "$PROMPT" ] && exit 0
 
@@ -49,13 +42,12 @@ if grep -qE '\b(auth|login|signin|sign-in|session|jwt|oauth|password|credential|
   append "[Auth/security context] This touches authentication or authorization. Treat token handling, session expiry, and permission checks as required test cases. Avoid logging secrets, sessions, or credentials."
 fi
 
-# Payments / billing. "checkout" counts only as a store's (a checkout page,
-# flow, session, form or button; a cart) — never git's: "git checkout" and
-# "worktree checkout" are dropped first, and a repo's "checkouts" name no such
-# noun. "stripe" is a whole word (not "striped"); "\bcharge" already leaves out
+# Payments / billing. Generic checkout nouns need an explicit commerce signal;
+# repository/branch/worktree checkout wording is VCS, not a payment flow.
+# "stripe" is a whole word (not "striped"); "\bcharge" already leaves out
 # discharge, and "in charge of" is dropped.
-BILLING_TEXT=$(printf '%s' "$LOWER" | sed -E 's/(^|[^[:alnum:]_])(git|worktree)[[:space:]]+checkout/\1/g; s/(^|[^[:alnum:]_])in[[:space:]]+charge/\1/g')
-if grep -qE '\b(payment|billing|invoice|refund|stripe\b|subscription|surcharge|charge)|\bcheckout[-_. ]?(page|flow|session|form|button)|\bcarts?\b' <<< "$BILLING_TEXT"; then
+BILLING_TEXT=$(printf '%s' "$LOWER" | sed -E 's/(^|[^[:alnum:]_])in[[:space:]]+charge/\1/g')
+if grep -qE '\b(payment|billing|invoice|refund|stripe\b|subscription|surcharge|charge)|\bcarts?\b|\b(store|shop|shopping|commerce|payment|stripe)[-_. ]+checkout([-. _]?(page|flow|session|form|button))?' <<< "$BILLING_TEXT"; then
   append "[Billing context] Customer-visible behavior — update tests with any behavior change. Never log full card data or PII. Reconcile any state change with the source of truth (DB, Stripe, ledger)."
 fi
 
@@ -78,9 +70,6 @@ fi
 
 # Emit JSON: hookSpecificOutput for UserPromptSubmit. A top-level
 # additionalContext is not in Claude Code's schema and never reached the model.
-# json-parse.sh is loaded only here — it needs a non-empty INPUT, which a
-# prompt implies.
-source "$HOOK_LIB/json-parse.sh"
 hook_context UserPromptSubmit "${REMINDERS%$'\n'}"
 
 exit 0

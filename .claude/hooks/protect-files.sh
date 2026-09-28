@@ -9,8 +9,9 @@
 # is checked by name; `git add -A / . / --all / <dir>` and `git commit -a`
 # against what `git status --porcelain -uall` says they would stage. Lock files
 # are exempt there — they are committed, just never hand-edited. Both are
-# checked in the directory git runs in: after a `cd <dir>` earlier in the same
-# (sub)shell, and with any `-C <dir>`.
+# checked in the directory git runs in: after a resolvable `cd <dir>` earlier in
+# the same (sub)shell, and with a resolvable `-C <dir>`. Staging fails closed when
+# a cwd-changing shell construct or a pathspec file cannot be resolved safely.
 #
 
 set -euo pipefail
@@ -141,19 +142,21 @@ CMD_CWD="${CMD_CWD:-$ROOT}"
 # Where each `cd` moved its (sub)shell: CD_SCOPES[k] (an SH_SEG_SCOPE) → CD_DIRS[k].
 CD_SCOPES=()
 CD_DIRS=()
+CD_UNKNOWN=()
 
 # seg_dir SCOPE — SEG_DIR = the directory a command in SCOPE runs in: the last
-# cd of that scope or of the nearest enclosing one, else the command's cwd. So
-# `cd sub && git add .` stages from sub/, and `(cd sub && make) && git add .`
-# from the cwd.
+# known cd of that scope or of the nearest enclosing one, else the command's cwd.
+# SEG_DIR_KNOWN=0 when an unmodelled cwd mutation means staging must fail closed.
 seg_dir() {
   local scope=$1 k
+  SEG_DIR_KNOWN=1
   while :; do
     k=${#CD_SCOPES[@]}
     while [ "$k" -gt 0 ]; do
       k=$((k - 1))
       if [ "${CD_SCOPES[$k]}" = "$scope" ]; then
         SEG_DIR=${CD_DIRS[$k]}
+        [ "${CD_UNKNOWN[$k]-0}" = 1 ] && SEG_DIR_KNOWN=0
         return 0
       fi
     done
@@ -166,10 +169,10 @@ seg_dir() {
 }
 
 # cd_to FROM SCOPE — record where the `cd` in SH_W, run in FROM, moves SCOPE.
-# A target the hook can't know ($VAR, $(…), `cd -`) or that isn't a directory
-# leaves the scope where it was.
+# A target the hook can't know ($VAR, $(…), `cd -`) marks the scope unknown;
+# a later staging command then blocks rather than assuming the prior directory.
 cd_to() {
-  local k=1 n=${#SH_W[@]} target
+  local k=1 n=${#SH_W[@]} target unknown=0
   while [ "$k" -lt "$n" ]; do
     case "${SH_W[$k]}" in
       --) k=$((k + 1)); break ;;
@@ -188,18 +191,29 @@ cd_to() {
     '~/'*) target=${HOME-}/${target:2} ;;
   esac
   case "$target" in
-    ''|-|*'$'*|*'`'*|'~'*) return 0 ;;
+    ''|-|*'$'*|*'`'*|'~'*) unknown=1 ;;
     /*) ;;
     *) target=$1/$target ;;
   esac
-  if [ -d "$target" ]; then
-    CD_SCOPES+=("$2")
+  if [ "$unknown" = 0 ] && [ ! -d "$target" ]; then unknown=1; fi
+  CD_SCOPES+=("$2")
+  if [ "$unknown" = 1 ]; then
+    CD_DIRS+=("$1")
+    CD_UNKNOWN+=(1)
+  else
     CD_DIRS+=("$target")
+    CD_UNKNOWN+=(0)
   fi
   return 0
 }
 
 FOUND=""  # "  <path> — <reason>" lines
+UNSAFE=""
+
+unsafe_stage() {
+  [ -n "$UNSAFE" ] || UNSAFE=$1
+  return 0
+}
 
 # note_path PATH — add PATH to FOUND when staging it would commit a protected
 # file (lock files aside).
@@ -249,6 +263,18 @@ note_status() {
 }
 
 shell_segments "$COMMAND"
+# Function bodies and pushd/popd can change the caller's cwd, but the lightweight
+# lexer does not execute shell semantics. If a later staging command exists,
+# fail closed rather than claim its cwd is known.
+DYNAMIC_CWD=0
+i=0
+while [ "$i" -lt "$SH_NSEG" ]; do
+  sh_seg_words "$i"
+  case " ${SH_W[*]-} " in
+    *" function "*|*" pushd "*|*" popd "*) DYNAMIC_CWD=1 ;;
+  esac
+  i=$((i + 1))
+done
 i=0
 while [ "$i" -lt "$SH_NSEG" ]; do
   seg_dir "${SH_SEG_SCOPE[$i]-}"
@@ -258,9 +284,17 @@ while [ "$i" -lt "$SH_NSEG" ]; do
   fi
   if sh_git_segment "$i"; then
     DIR="$SEG_DIR"
+    case "$SH_GIT_SUB" in
+      add|commit)
+        if [ "$DYNAMIC_CWD" = 1 ] || [ "$SEG_DIR_KNOWN" = 0 ]; then
+          unsafe_stage "the command changes git's working directory in a way the safety hook cannot resolve"
+        fi
+        ;;
+    esac
     case "$SH_GIT_CWD" in
       "") ;;
       /*) DIR="$SH_GIT_CWD" ;;
+      *'$('*|*'`'*|*'$'*) unsafe_stage "git -C uses a dynamic directory the safety hook cannot resolve" ;;
       *) DIR="$DIR/$SH_GIT_CWD" ;;
     esac
     case "$SH_GIT_SUB" in
@@ -270,8 +304,15 @@ while [ "$i" -lt "$SH_NSEG" ]; do
         FORCE=false
         DRY=false
         END=false
+        PATHSPEC_FILE=""
+        PATHSPEC_NUL=false
         PATHS=()
+        SKIP_NEXT_PATHSPEC=false
         for ARG in ${SH_GIT_ARGS[@]+"${SH_GIT_ARGS[@]}"}; do
+          if [ "$SKIP_NEXT_PATHSPEC" = true ]; then
+            SKIP_NEXT_PATHSPEC=false
+            continue
+          fi
           if [ "$END" = true ]; then
             PATHS+=("$ARG")
             continue
@@ -282,6 +323,9 @@ while [ "$i" -lt "$SH_NSEG" ]; do
             --update) UPDATE=true ;;
             --force) FORCE=true ;;
             --dry-run) DRY=true ;;
+            --pathspec-from-file=*) PATHSPEC_FILE=${ARG#--pathspec-from-file=} ;;
+            --pathspec-from-file) SKIP_NEXT_PATHSPEC=true ;;
+            --pathspec-file-nul) PATHSPEC_NUL=true ;;
             --*) ;;
             -*)
               case "$ARG" in *A*) ALL=true ;; esac
@@ -292,6 +336,32 @@ while [ "$i" -lt "$SH_NSEG" ]; do
             *) PATHS+=("$ARG") ;;
           esac
         done
+        # A separated pathspec-file value is the next argument; recover it from
+        # the original argv. Any dynamic, missing, unreadable, or NUL-delimited
+        # file fails closed instead of staging paths the hook never inspected.
+        k=0
+        while [ "$k" -lt "${#SH_GIT_ARGS[@]}" ]; do
+          if [ "${SH_GIT_ARGS[$k]}" = "--pathspec-from-file" ]; then
+            k=$((k + 1)); PATHSPEC_FILE=${SH_GIT_ARGS[$k]-}
+          fi
+          k=$((k + 1))
+        done
+        if [ -n "$PATHSPEC_FILE" ]; then
+          case "$PATHSPEC_FILE" in
+            -|*'$'*|*'`'*|*'$('*|'') unsafe_stage "git add uses a dynamic or stdin pathspec file" ;;
+            /*) PS_FILE=$PATHSPEC_FILE ;;
+            *) PS_FILE=$DIR/$PATHSPEC_FILE ;;
+          esac
+          if [ "$PATHSPEC_NUL" = true ]; then
+            unsafe_stage "NUL-delimited pathspec files cannot be inspected safely by this bash hook"
+          elif [ -z "${PS_FILE-}" ] || [ ! -f "$PS_FILE" ] || [ ! -r "$PS_FILE" ] || [ -L "$PS_FILE" ]; then
+            unsafe_stage "git add pathspec file is missing, unreadable, or a symlink"
+          else
+            while IFS= read -r P || [ -n "$P" ]; do
+              [ -n "$P" ] && PATHS+=("$P")
+            done < "$PS_FILE"
+          fi
+        fi
         if [ "$DRY" = false ]; then
           for P in ${PATHS[@]+"${PATHS[@]}"}; do
             note_path "$P"
@@ -317,6 +387,14 @@ while [ "$i" -lt "$SH_NSEG" ]; do
   fi
   i=$((i + 1))
 done
+
+if [ -n "$UNSAFE" ]; then
+  bump_counter "$ROOT/.hook-state/hook-firings.json" "protect-files"
+  exec 1>&2
+  echo "BLOCKED: $UNSAFE."
+  echo "Use literal directories and pathspecs, or stage safe files by name."
+  exit 2
+fi
 
 if [ -n "$FOUND" ]; then
   bump_counter "$ROOT/.hook-state/hook-firings.json" "protect-files"

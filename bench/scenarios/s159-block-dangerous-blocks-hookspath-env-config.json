@@ -1,0 +1,56 @@
+{
+  "name": "s159-block-dangerous-blocks-hookspath-env-config",
+  "steps": [
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m \"chore: test\""
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED",
+        "stderr_contains": [
+          "environment configuration"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "env": {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "CORE.HOOKSPATH",
+        "GIT_CONFIG_VALUE_0": "/dev/null",
+        "PATH": "{PATH}"
+      },
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin feat/safe"
+        }
+      },
+      "expect": {
+        "exit_code": 2,
+        "stdout_empty": true,
+        "stderr_starts_with": "BLOCKED"
+      }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=test git commit -m \"chore: safe\""
+        }
+      },
+      "expect": {
+        "exit_code": 0,
+        "stderr_empty": true
+      }
+    }
+  ],
+  "notes": "Git accepts configuration through GIT_CONFIG_COUNT/KEY_n/VALUE_n environment entries. A core.hooksPath entry bypasses hooks just like -c core.hooksPath; unrelated config remains allowed."
+}
