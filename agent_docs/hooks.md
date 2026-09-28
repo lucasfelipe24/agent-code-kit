@@ -20,7 +20,7 @@ SessionStart fires with a `source`: `startup` / `resume` / `clear` for a fresh s
 
 | Hook | File | What it does |
 |------|------|-------------|
-| **prompt-router** | `.claude/hooks/prompt-router.sh` | Keyword-based context injection. If the prompt mentions auth, billing, migrations, deploy, or dependencies, it injects a one-line reminder for that domain. |
+| **prompt-router** | `.claude/hooks/prompt-router.sh` | Keyword-based context injection. If the prompt mentions auth, billing, migrations, deploy, or dependencies, it injects a one-line reminder for that domain. Reads the prompt with python3 only when it actually runs (`lib/python3.sh`), else jq, else bash. |
 ### PreToolUse (runs BEFORE a tool executes)
 
 | Hook | File | What it does |

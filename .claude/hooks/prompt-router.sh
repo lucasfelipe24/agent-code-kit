@@ -14,11 +14,15 @@
 set -euo pipefail
 
 INPUT=$(cat)
+HOOK_LIB="$(cd "$(dirname "$0")/lib" 2>/dev/null && pwd)"
+# A python3 that exists but doesn't run (the macOS xcode-select stub) counts as
+# absent — through it the prompt read as empty and no reminder ever fired.
+source "$HOOK_LIB/python3.sh"
 
 # Extract the prompt text (Claude Code passes it under "prompt").
-# Use python3 for robust parsing; fall back to grep-based extraction.
+# Use python3 for robust parsing; fall back to jq, then to grep-based extraction.
 PROMPT=""
-if command -v python3 &>/dev/null; then
+if python3_usable; then
   PROMPT=$(printf '%s' "$INPUT" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("prompt",""))' 2>/dev/null || true)
 elif command -v jq &>/dev/null; then
   PROMPT=$(printf '%s' "$INPUT" | jq -r '.prompt // ""' 2>/dev/null || true)
@@ -69,8 +73,8 @@ fi
 
 # Emit JSON: hookSpecificOutput for UserPromptSubmit. A top-level
 # additionalContext is not in Claude Code's schema and never reached the model.
-# The lib is loaded only here — it needs a non-empty INPUT, which a prompt implies.
-HOOK_LIB="$(cd "$(dirname "$0")/lib" 2>/dev/null && pwd)"
+# json-parse.sh is loaded only here — it needs a non-empty INPUT, which a
+# prompt implies.
 source "$HOOK_LIB/json-parse.sh"
 hook_context UserPromptSubmit "${REMINDERS%$'\n'}"
 
