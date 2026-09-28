@@ -9,49 +9,83 @@ the first one and injects it as the session's active task.
 
 ## In Progress
 
-### README redesign in the readme-md-generator style; solo-maintainer repo
+### Configuration prefix cutover to ACK_ (ADR-029)
 
-Goal: `README.md` and `README.pt-BR.md` use the layout of
-[readme-md-generator](https://github.com/kefranabg/readme-md-generator) —
-centered welcome title, a row of clickable badges, emoji section headings, the
-demo near the top, then Prerequisites, Install, Usage, Run tests, Author, Show
-your support and License — with the kit's current content. Done when
-markdownlint, `check-counts.sh` and the link check pass, every badge URL
-returns an image and every link returns 200 (checked, not assumed), and
-GitHub's renderer shows both files correctly.
+Goal: every kit variable, temp file and marker uses `ACK_` / `ack-`; the former
+prefix appears in no tracked path or content (`scripts/check-prefix-residue.sh`
+passes, and fails on planted residue); `doctor` migrates existing settings with
+a backup and no printed values; a quality-gate failure noted under the former
+marker still blocks. Released as a minor version by the maintainer's choice.
 
-- [x] Repo settings: issues off (`has_issues=false`), PR creation limited to
-  collaborators (`pull_request_creation_policy=collaborators_only`), private
-  vulnerability reporting on — all confirmed through the API. Recorded as
-  ADR-027.
-- [x] The maintainer can still open pull requests under `collaborators_only`
-  (one was opened after the change).
-- [x] release-please can still open its PR under `collaborators_only`
-  (the 1.22.4 release PR was opened after the change).
-- [x] `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`: the
-  `homepage` pointed at a GitHub Pages URL that returns 404 — now
-  `https://github.com/lucasfelipe24/agent-code-kit#readme`.
-- [x] `package.json` (Protected Change — the maintainer ran the edit): the same
-  `homepage` fix, plus `"author": "Lucas Felipe"`. No `bugs` URL: issues are off.
-- [x] `README.md`: header, badges (npm version, npm downloads, node >=18, CI,
-  maintained, license, pt-BR), a short link bar, emoji headings; long
-  reference tables in `<details>`; a "solo project" note where the
-  Contributing section would be; Author; Show your support; License with the
-  copyright line. Keeps the scenario-count phrases `check-counts.sh` reads.
-- [x] `README.pt-BR.md`: the same layout and content, in Portuguese.
-- [x] `CONTRIBUTING.md`: an opening line saying outside issues and pull
-  requests aren't accepted.
-- [x] Verify: markdownlint (0 issues), `check-counts.sh`, `npm run check`,
-  16 URLs fetched (all 200 except npmjs.com's 403 to bots) and every badge's
-  rendered text read, both files rendered through GitHub's markdown API.
-- [x] After push: every `#` link in both READMEs matches an anchor id in
-  GitHub's rendered HTML for the branch (9 per file).
+- [x] Rename 7 public variables, 3 internal names, the temp/marker files and the
+  test scratch names; regenerate `.claude/settings.strict.json` from its script.
+- [x] `doctor`: rename former-prefix keys in `.claude/settings.json` and
+  `settings.local.json` (backup in `.hook-state/`, `ACK_` wins a conflict,
+  values never printed); report exported former-prefix variables by target.
+- [x] `--upgrade` / `--diff`: leave settings untouched, count former-prefix keys
+  and point at `doctor`.
+- [x] stop-gate / quality-gate carry the former gate marker over (s161);
+  `convert` sweeps skills exported under the former marker.
+- [x] Residue guard wired into `sync-manifest.sh --check` (CI Manifest Sync and
+  `npm run check`); KitBench `null` env = unset.
+- [ ] PR merged and released.
 
 ---
 
 ## Up Next
 
-- Nothing queued. Parked scope lives under **Not Now**.
+### Playbook module (decided 2026-09-28 — do not drop)
+
+Adapt the engineering-playbook material reviewed on 2026-09-28 into the kit.
+The full item-by-item spec (what to keep, adapt, correct or drop; ~60 factual
+errors to fix on the way) is local, untracked:
+`artifacts/2026-09-28-playbook-adaptation-spec.html`.
+
+Decisions already made:
+
+- **Placement (hybrid):** generic material goes to the core, loaded on demand;
+  opinionated material and GitHub processes go to an optional `--playbook`
+  module (same mechanism as `--wiki` / `--html`).
+- **Issue-based processes are opt-in per project:** they apply only when
+  `CLAUDE.project.md` declares `## Tracking: github-issues` and the repo has
+  issues on; otherwise `tasks/todo.md` stays the tracker.
+- **Rate limiting:** design guidance in `security.md` and `/security-audit`, plus
+  one security-reviewer exception — missing throttling on credential endpoints
+  (login, password reset) is a finding.
+- **i18n:** English is the default and source locale; the rules apply only when
+  the project already has i18n or asks for it (adding it is a Protected Change).
+- **Opinionated choices** (libraries, naming, numbers) become defaults for when
+  the project hasn't chosen; what the project already uses wins.
+- **No external credits** in ported text.
+
+Phases, one PR each, each starting with a plan approved here:
+
+1. Core docs, loaded on demand through `prompt-router.sh` / `glob-guidance.sh`:
+   database (migrations, types, indexes), multi-tenancy (the four real isolation
+   strategies + five mandatory checks), API design + RFC 9457 errors, security,
+   observability/logging, environments, Docker, CI/CD, git workflow, i18n; edits
+   to `conventions.md` and `testing.md`. The `node-api` error-shape change needs
+   an ADR.
+2. Core process skills: `/pr-followup`, `/release`, `/incident`,
+   `/security-audit`, `/onboard`; additions to `/ship`, `/dependency-audit`,
+   the reviewers and the audit skills.
+3. `--playbook` module: `/github-setup`, `/issue`, `PROCESS.md`, GitHub issue
+   forms + PR template + labels, stack docs, git-hooks doc; install / upgrade /
+   uninstall / doctor support with tests.
+4. Stack templates: the few always-loaded lines per stack.
+5. Deterministic checks from the spec, with KitBench scenarios.
+
+### Install / upgrade architecture proposal (awaiting the maintainer's approval)
+
+A separate review of init, upgrade, migration, modules and adoption produced a
+phased proposal — analysis only, nothing implemented. Local, untracked:
+`artifacts/2026-09-28-kit-install-architecture-proposal.html`. Open findings it
+lists include: `VERSION` overwritten at the project root, an existing
+`CLAUDE.md` / `settings.json` never integrated (no hook merge), all-or-nothing
+directories, uninstall of edited `tasks/` / `CLAUDE.md`, a re-init dropping
+`hooks/lib` from the manifest, and runtime discovery of subagents and active
+modules (see the two lessons dated 2026-09-28). Review it, approve or cut the
+phases, then plan here.
 
 ---
 
@@ -60,6 +94,19 @@ GitHub's renderer shows both files correctly.
 Shipped releases are recorded in `CHANGELOG.md` — release-please generates it
 from Conventional Commits, so this section only carries work that has landed on
 `main` since the last cut.
+
+### Since the repository rebuild (1.22.4 → 1.22.5)
+
+- [x] Repository rebuilt as a single clean commit; README redesigned in English
+  and Portuguese; issues off, PRs limited to collaborators (ADR-027); npm
+  publishing opt-in, GitHub releases only (ADR-028); CHANGELOG linted in CI
+  (ADR-026); the link check scans every Markdown file.
+- [x] Hook context reaches the model (`hookSpecificOutput`); Bash policy hooks
+  close heredoc commits, `--no-verify`, dependency adds, secret staging,
+  `+main` / `--all` pushes, `core.hooksPath`, pathspec files and unresolved cwd
+  changes; KitBench 99 → 156 scenarios.
+- [x] Skills/docs corrected (WCAG 2.2, audit commands, Next.js); `gen-agents-md`
+  skips nested checkouts.
 
 ### Since v1.21.1
 
@@ -127,6 +174,12 @@ same way in the released 1.21.x or is a known limit of the new design.
 Found while fixing the five v1.22.2 field bugs, outside their scope:
 
 - **Existing installs keep relative hook commands and the `Task`-only matcher**: `--upgrade` never rewrites `.claude/settings.json`, and neither `--diff` nor doctor flags either. The same now applies to protect-files and protect-changes on the `Bash` matcher: existing installs have to register them by hand. _(v1.22.2 field bugs; hook enforcement fixes)_
+
+Found by the final review of the hook hardening (1.22.5), first thing to pick up:
+
+- **Git config exported in an earlier segment**: `export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null; git commit …` — `block-dangerous-commands.sh` only reads inline assignments on the git segment and the hook's own environment. _(hook review)_
+- **`source` / `.` / `eval` of a file that changes directory**, then `git add .`: `protect-files.sh` fails closed only for functions and `pushd`/`popd`. _(hook review)_
+- **No-parser JSON fallback** (`lib/json-parse.sh`, no python3 and no jq) reads the first matching key at any depth and doesn't reject malformed JSON; `prompt-router` can route on a nested `prompt`. Advisory only. _(hook review)_
 
 Found while fixing the hook enforcement gaps, outside their scope:
 
