@@ -103,7 +103,8 @@ grep -q 'GENERATED from src/api/CLAUDE.md' "$TMP/src/api/AGENTS.md" 2>/dev/null 
 # joins it without doubling the slash, so every $DEST-relative trim must still hold.
 rm -f "$TMP/AGENTS.md" "$TMP/src/api/AGENTS.md"
 bash "$TMP/scripts/gen-agents-md.sh" "$TMP/" >/dev/null 2>&1 && pass "gen-agents-md.sh ran on a trailing-slash target" || fail "gen-agents-md.sh failed on a trailing-slash target"
-head -1 "$TMP/AGENTS.md" 2>/dev/null | grep -q '^<!-- GENERATED FILE' \
+root_agents_header="$(head -1 "$TMP/AGENTS.md" 2>/dev/null || true)"
+grep -q '^<!-- GENERATED FILE' <<< "$root_agents_header" \
   && pass "trailing slash: root AGENTS.md is the generated one" || fail "trailing slash: root AGENTS.md is not the generated file (a CLAUDE.md copy?)"
 grep -q 'GENERATED from src/api/CLAUDE.md' "$TMP/src/api/AGENTS.md" 2>/dev/null \
   && pass "trailing slash: src/api/CLAUDE.md mirrored to src/api/AGENTS.md" || fail "trailing slash: src/api/AGENTS.md missing or mislabelled"
