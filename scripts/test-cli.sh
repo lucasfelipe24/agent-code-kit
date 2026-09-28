@@ -99,6 +99,17 @@ grep -q 'GENERATED from src/api/CLAUDE.md' "$TMP/src/api/AGENTS.md" 2>/dev/null 
 [ ! -e "$TMP/.claude/worktrees/wt/AGENTS.md" ] && pass "no AGENTS.md written into .claude/worktrees/wt" || fail "AGENTS.md written into the .claude/worktrees/wt worktree"
 [ ! -e "$TMP/libs/sub/AGENTS.md" ] && pass "no AGENTS.md written into a submodule (.git file)" || fail "AGENTS.md written into the libs/sub submodule"
 [ ! -e "$TMP/vendor/lib/AGENTS.md" ] && pass "no AGENTS.md written into a nested clone (.git dir)" || fail "AGENTS.md written into the vendor/lib nested clone"
+# Same tree, target passed as an absolute path with a trailing slash: GNU find
+# joins it without doubling the slash, so every $DEST-relative trim must still hold.
+rm -f "$TMP/AGENTS.md" "$TMP/src/api/AGENTS.md"
+bash "$TMP/scripts/gen-agents-md.sh" "$TMP/" >/dev/null 2>&1 && pass "gen-agents-md.sh ran on a trailing-slash target" || fail "gen-agents-md.sh failed on a trailing-slash target"
+head -1 "$TMP/AGENTS.md" 2>/dev/null | grep -q '^<!-- GENERATED FILE' \
+  && pass "trailing slash: root AGENTS.md is the generated one" || fail "trailing slash: root AGENTS.md is not the generated file (a CLAUDE.md copy?)"
+grep -q 'GENERATED from src/api/CLAUDE.md' "$TMP/src/api/AGENTS.md" 2>/dev/null \
+  && pass "trailing slash: src/api/CLAUDE.md mirrored to src/api/AGENTS.md" || fail "trailing slash: src/api/AGENTS.md missing or mislabelled"
+for d in .claude/worktrees/wt libs/sub vendor/lib; do
+  [ ! -e "$TMP/$d/AGENTS.md" ] && pass "trailing slash: no AGENTS.md written into $d" || fail "trailing slash: AGENTS.md written into $d"
+done
 rm -rf "$TMP/src" "$TMP/.claude/worktrees" "$TMP/libs" "$TMP/vendor"
 
 # --- convert codex → AGENTS.md + .agents/skills/ ----------------------------

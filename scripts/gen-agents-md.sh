@@ -19,6 +19,9 @@
 set -euo pipefail
 
 DEST="${1:-.}"
+# Strip trailing slashes (keep "/" itself): GNU find joins "dir/" as "dir/x",
+# BSD as "dir//x" — without one canonical form the "$DEST/" trims below miss.
+while [ "$DEST" != "/" ] && [ "${DEST%/}" != "$DEST" ]; do DEST="${DEST%/}"; done
 OUTFILE="$DEST/AGENTS.md"
 
 # --- Helpers ---
@@ -222,7 +225,7 @@ PRUNE=( -path '*/node_modules' -o -path '*/examples' -o -path '*/wiki-module' -o
 CHECKOUTS=""
 while IFS= read -r dotgit; do
   parent="${dotgit%/.git}"
-  case "$parent" in "$DEST"|"${DEST%/}") continue ;; esac   # $DEST's own .git
+  if [ "$parent" = "$DEST" ]; then continue; fi   # $DEST's own .git
   CHECKOUTS="$CHECKOUTS$parent"$'\n'
 done < <(find "$DEST" \( "${PRUNE[@]}" \) -prune -o -name .git -prune -print 2>/dev/null)
 
