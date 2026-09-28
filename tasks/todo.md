@@ -9,26 +9,43 @@ the first one and injects it as the session's active task.
 
 ## In Progress
 
-### Configuration prefix cutover to ACK_ (ADR-029)
+### Docs sync after 1.23.0 — task audit, gitignored artifacts
 
-Goal: every kit variable, temp file and marker uses `ACK_` / `ack-`; the former
-prefix appears in no tracked path or content (`scripts/check-prefix-residue.sh`
-passes, and fails on planted residue); `doctor` migrates existing settings with
-a backup and no printed values; a quality-gate failure noted under the former
-marker still blocks. Released as a minor version by the maintainer's choice.
+Goal: every doc agrees with the code and with what shipped. `CODEBASE_MAP.md`
+lists every skill, script, agent and module on disk (a name-by-name diff against
+the tree comes back empty); no task, spec or lesson reports as open or current
+something that has shipped or been superseded; `npm run check` and
+`scripts/lesson-graph.sh --check` pass.
 
-- [x] Rename 7 public variables, 3 internal names, the temp/marker files and the
-  test scratch names; regenerate `.claude/settings.strict.json` from its script.
-- [x] `doctor`: rename former-prefix keys in `.claude/settings.json` and
-  `settings.local.json` (backup in `.hook-state/`, `ACK_` wins a conflict,
-  values never printed); report exported former-prefix variables by target.
-- [x] `--upgrade` / `--diff`: leave settings untouched, count former-prefix keys
-  and point at `doctor`.
-- [x] stop-gate / quality-gate carry the former gate marker over (s161);
-  `convert` sweeps skills exported under the former marker.
-- [x] Residue guard wired into `sync-manifest.sh --check` (CI Manifest Sync and
-  `npm run check`); KitBench `null` env = unset.
-- [ ] PR merged and released.
+Audit (2026-09-28): the ACK_ cutover shipped (PR #6, v1.23.0, CI green); the
+DFMT spike's follow-up shipped (`/note`, `journal-fold.sh`, the After Compaction
+line); the Playbook module and the install proposal are not started, by design;
+the Not Now items checked by grep are still open.
+
+- [x] `.gitignore`: ignore `artifacts/` (repo-only; `.gitignore` isn't in the
+  npm `files` list or the manifest).
+- [x] `tasks/todo.md`: ACK_ cutover closed; Done pruned to what landed since
+  1.23.0 (earlier work is in `CHANGELOG.md`); Up Next points at gitignored
+  artifacts; the EOTP Not Now item dropped.
+- [x] `CODEBASE_MAP.md`: added the 6 skills, 8 scripts + `scripts/lib/manifest.sh`,
+  `devils-advocate`, `auto-mode.md`, `html-module/` / `wiki-module/`,
+  `ARTIFACTS.md` / `WIKI.md` / `AGENTS.md`, `settings.strict.json`,
+  `.claude-plugin/`, `.github/workflows/`, the release docs, `tasks/specs/` and
+  `tasks/lessons/_archive/`; fixed the stale claims (root map called a template,
+  grep/cut-only JSON parsing, a single gate verdict file, six hook events, After
+  Compaction and upgrade flows). `AGENTS.md` regenerated from it.
+- [x] `tasks/specs/2026-05-22-dfmt-spike/spec.md`: status → closed, follow-up
+  shipped.
+- [x] EOTP lesson archived to `tasks/lessons/_archive/` (contradicted ADR-028 and
+  `RELEASING.md`); `_index.md` regenerated.
+- [x] Verify: the map diff is empty; manifest, scaffold, strict-settings and
+  skills checks pass; `AGENTS.md` regeneration is idempotent (the agents-md
+  check passes once it's committed with the map); `lesson-graph.sh --check`,
+  `validate.sh CODEBASE_MAP.md`, `check-counts.sh` and markdownlint pass.
+- [ ] Committed and merged.
+
+Risks: `check-scaffold.sh` requires templates shared with `scaffold/tasks/` to
+stay byte-identical — none of the files above is one of them.
 
 ---
 
@@ -38,7 +55,7 @@ marker still blocks. Released as a minor version by the maintainer's choice.
 
 Adapt the engineering-playbook material reviewed on 2026-09-28 into the kit.
 The full item-by-item spec (what to keep, adapt, correct or drop; ~60 factual
-errors to fix on the way) is local, untracked:
+errors to fix on the way) is local, gitignored:
 `artifacts/2026-09-28-playbook-adaptation-spec.html`.
 
 Decisions already made:
@@ -78,7 +95,7 @@ Phases, one PR each, each starting with a plan approved here:
 ### Install / upgrade architecture proposal (awaiting the maintainer's approval)
 
 A separate review of init, upgrade, migration, modules and adoption produced a
-phased proposal — analysis only, nothing implemented. Local, untracked:
+phased proposal — analysis only, nothing implemented. Local, gitignored:
 `artifacts/2026-09-28-kit-install-architecture-proposal.html`. Open findings it
 lists include: `VERSION` overwritten at the project root, an existing
 `CLAUDE.md` / `settings.json` never integrated (no hook merge), all-or-nothing
@@ -95,53 +112,7 @@ Shipped releases are recorded in `CHANGELOG.md` — release-please generates it
 from Conventional Commits, so this section only carries work that has landed on
 `main` since the last cut.
 
-### Since the repository rebuild (1.22.4 → 1.22.5)
-
-- [x] Repository rebuilt as a single clean commit; README redesigned in English
-  and Portuguese; issues off, PRs limited to collaborators (ADR-027); npm
-  publishing opt-in, GitHub releases only (ADR-028); CHANGELOG linted in CI
-  (ADR-026); the link check scans every Markdown file.
-- [x] Hook context reaches the model (`hookSpecificOutput`); Bash policy hooks
-  close heredoc commits, `--no-verify`, dependency adds, secret staging,
-  `+main` / `--all` pushes, `core.hooksPath`, pathspec files and unresolved cwd
-  changes; KitBench 99 → 157 scenarios.
-- [x] Skills/docs corrected (WCAG 2.2, audit commands, Next.js); `gen-agents-md`
-  skips nested checkouts.
-
-### Since v1.21.1
-
-- [x] Pre-release fix round for the verification-core batch. Three adversarial
-  reviews of the merged batch found bugs the batch had introduced — a `--diff`
-  that destroyed user files and a stop gate that could be walked past — and they
-  were fixed before 1.22.0 was cut. Only fail-open and data-loss problems the
-  unreleased batch introduced counted as blockers; everything else went to
-  **Not Now**.
-  - Installs ship only the 10 user-facing scripts, and `sync-manifest.sh`
-    exits 2 instead of reporting success without its library.
-  - Doctor fails when the gates aren't wired in `settings.json`; the .NET
-    advice no longer points `typecheck` at a single project; s58 and s61 assert
-    what they claim; `check-counts.sh` guards the README's scenario numbers.
-  - The quality gate fails closed: results are scoped by session, an
-    unwritable `.hook-state` blocks, a per-file log replaces the last-run summary
-    when python3 is unusable, worktrees the session edited are checked, and the
-    check's process group is killed only on timeout (ADR-022).
-    Sixteen new scenarios, s81–s96.
-  - `--diff` never writes outside its scratch copy (it followed symlinks
-    into shared directories), and an upgrade never replaces a file the kit didn't
-    install without naming the backup (ADR-023).
-- [x] Verification-core batch: verification results and upgrades you can trust.
-  One PR per item.
-  - PR 0: `--upgrade` updates kit-managed files against a per-file baseline (ADR-017).
-  - PR 1a: worktree-aware roots and gate state, a process-group timeout, and multi-step bench scenarios (ADR-018).
-  - PR 1b: per-file scoped gate results with passed / failed / timeout / error / skipped statuses (ADR-019).
-  - PR 2: C#/.NET checks for `.cs`, `.csproj` and `.sln`, plus a dotnet template.
-  - PR 3: `commands.json` schema validation, where an absent key auto-detects and `""` turns a check off; fast per-edit checks are separate from full checks (ADR-020).
-  - PR 4: a doctor behavioral self-test. A broken edit blocks, compaction keeps the verdict, a fix unblocks, and worktrees stay isolated.
-  - PR 5: `--diff` runs the real upgrade on a scratch copy, so the preview matches what `--upgrade` does. It also flags stale kit files and hook registrations that are missing or point at no script (ADR-021).
-- [x] The README's collapsed "Manual install" recipe still copied
-  `CODEBASE_MAP.md` and `tasks/` from the repo root, handing out the state that
-  two earlier PRs stopped `install.sh` from shipping — on GitHub, on the site's
-  Introduction page, and in the LLM docs dump. Now copies from `scaffold/`.
+Nothing yet since 1.23.0 — everything earlier is in `CHANGELOG.md`.
 
 ---
 

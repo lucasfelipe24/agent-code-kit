@@ -1,6 +1,6 @@
 # DFMT Pattern Spike — Recommendation
 
-**Status:** Recommendation `BUILD DIFFERENTLY` — see § 5.
+**Status:** Closed — recommendation `BUILD DIFFERENTLY` (§ 5) adopted; the § 6 follow-up shipped as the `/note` skill, `journal-fold.sh` (SessionEnd) and CLAUDE.md → After Compaction step 5. The optional intent observability was not built.
 **Date:** 2026-05-22
 **Spike length:** ~1 focused session (target was ~2 h)
 
