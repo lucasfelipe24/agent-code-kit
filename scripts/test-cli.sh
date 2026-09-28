@@ -83,6 +83,36 @@ echo "== generate agents-md =="
 ( cd "$TMP" && bash "$CLI" generate agents-md >/dev/null 2>&1 ) && pass "generate agents-md ran" || fail "generate agents-md failed"
 [ -s "$TMP/AGENTS.md" ] && pass "AGENTS.md is non-empty" || fail "AGENTS.md missing/empty"
 
+# --- nested AGENTS.md: mirror module CLAUDE.md, never write into a nested checkout
+# A Claude Code worktree (.claude/worktrees/<name>/, .git file), a submodule (.git
+# file) and a nested clone (.git dir) are other checkouts with their own root
+# CLAUDE.md — mirroring into them leaves a spurious AGENTS.md diff in each.
+echo "== generate agents-md: nested checkouts skipped =="
+mkdir -p "$TMP/src/api" "$TMP/.claude/worktrees/wt" "$TMP/libs/sub" "$TMP/vendor/lib/.git"
+printf '# api rules\n' > "$TMP/src/api/CLAUDE.md"
+printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "$TMP/.claude/worktrees/wt/.git"
+printf 'gitdir: ../../.git/modules/sub\n' > "$TMP/libs/sub/.git"
+for d in .claude/worktrees/wt libs/sub vendor/lib; do printf '# CLAUDE.md\n' > "$TMP/$d/CLAUDE.md"; done
+( cd "$TMP" && bash "$CLI" generate agents-md >/dev/null 2>&1 ) && pass "generate agents-md ran with nested checkouts" || fail "generate agents-md failed with nested checkouts"
+grep -q 'GENERATED from src/api/CLAUDE.md' "$TMP/src/api/AGENTS.md" 2>/dev/null \
+  && pass "src/api/CLAUDE.md mirrored to src/api/AGENTS.md" || fail "src/api/AGENTS.md not generated"
+[ ! -e "$TMP/.claude/worktrees/wt/AGENTS.md" ] && pass "no AGENTS.md written into .claude/worktrees/wt" || fail "AGENTS.md written into the .claude/worktrees/wt worktree"
+[ ! -e "$TMP/libs/sub/AGENTS.md" ] && pass "no AGENTS.md written into a submodule (.git file)" || fail "AGENTS.md written into the libs/sub submodule"
+[ ! -e "$TMP/vendor/lib/AGENTS.md" ] && pass "no AGENTS.md written into a nested clone (.git dir)" || fail "AGENTS.md written into the vendor/lib nested clone"
+# Same tree, target passed as an absolute path with a trailing slash: GNU find
+# joins it without doubling the slash, so every $DEST-relative trim must still hold.
+rm -f "$TMP/AGENTS.md" "$TMP/src/api/AGENTS.md"
+bash "$TMP/scripts/gen-agents-md.sh" "$TMP/" >/dev/null 2>&1 && pass "gen-agents-md.sh ran on a trailing-slash target" || fail "gen-agents-md.sh failed on a trailing-slash target"
+root_agents_header="$(head -1 "$TMP/AGENTS.md" 2>/dev/null || true)"
+grep -q '^<!-- GENERATED FILE' <<< "$root_agents_header" \
+  && pass "trailing slash: root AGENTS.md is the generated one" || fail "trailing slash: root AGENTS.md is not the generated file (a CLAUDE.md copy?)"
+grep -q 'GENERATED from src/api/CLAUDE.md' "$TMP/src/api/AGENTS.md" 2>/dev/null \
+  && pass "trailing slash: src/api/CLAUDE.md mirrored to src/api/AGENTS.md" || fail "trailing slash: src/api/AGENTS.md missing or mislabelled"
+for d in .claude/worktrees/wt libs/sub vendor/lib; do
+  [ ! -e "$TMP/$d/AGENTS.md" ] && pass "trailing slash: no AGENTS.md written into $d" || fail "trailing slash: AGENTS.md written into $d"
+done
+rm -rf "$TMP/src" "$TMP/.claude/worktrees" "$TMP/libs" "$TMP/vendor"
+
 # --- convert codex → AGENTS.md + .agents/skills/ ----------------------------
 echo "== convert codex =="
 ( cd "$TMP" && bash "$CLI" convert codex >/dev/null 2>&1 ) && pass "convert codex ran" || fail "convert codex failed"
