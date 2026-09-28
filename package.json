@@ -1,6 +1,6 @@
 {
   "name": "@lucasfelipe23/agent-code-kit",
-  "version": "1.22.4",
+  "version": "1.22.5",
   "description": "Drop-in starter kit that turns Claude Code from eager intern to staff engineer",
   "license": "MIT",
   "author": "Lucas Felipe",
