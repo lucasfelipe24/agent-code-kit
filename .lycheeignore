@@ -1,0 +1,29 @@
+# .lycheeignore — URL patterns the link-check workflow should skip.
+# One regex per line. See https://lychee.cli.rs/ for syntax.
+
+# OpenAI and Anthropic both return 403 to bot user agents (Cloudflare).
+# These are citations in ADRs, not runtime dependencies.
+https://openai\.com/index/.*
+https://claude\.ai/.*
+
+# npm returns 403 to CI runners (Cloudflare bot protection); the package
+# page is the README's npm badge target and resolves in a browser.
+https://www\.npmjs\.com/package/.*
+
+# release-please writes each new version's compare link before its tag exists
+# (the tag is created when the release PR merges), so the link 404s on every
+# release PR. The links are generated from tags, so checking them adds nothing.
+https://github\.com/lucasfelipe24/agent-code-kit/compare/v[0-9.]+\.\.\.v[0-9.]+
+
+# Vendor llms.txt endpoints in known-sources.yaml are speculative until
+# verified upstream — exclude from CI so an unreachable URL doesn't block merges.
+# Remove specific entries here once they're verified.
+https://docs\.anthropic\.com/llms\.txt
+https://platform\.openai\.com/llms\.txt
+https://docs\.stripe\.com/llms\.txt
+https://nextjs\.org/llms\.txt
+https://vercel\.com/llms\.txt
+https://docs\.astro\.build/llms\.txt
+https://svelte\.dev/llms\.txt
+https://fastapi\.tiangolo\.com/llms\.txt
+https://docs\.djangoproject\.com/llms\.txt

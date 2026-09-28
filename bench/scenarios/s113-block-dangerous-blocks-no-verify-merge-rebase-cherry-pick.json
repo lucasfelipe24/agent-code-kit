@@ -1,0 +1,21 @@
+{
+  "name": "s113-block-dangerous-blocks-no-verify-merge-rebase-cherry-pick",
+  "steps": [
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git merge --no-verify feat/search" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git rebase --no-verify main" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git cherry-pick --no-verify abc1234" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "--no-verify skips the project's git hooks on any git command; on merge, rebase and cherry-pick it passed (exit 0)."
+}

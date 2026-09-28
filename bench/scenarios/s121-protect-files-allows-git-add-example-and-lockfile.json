@@ -1,0 +1,21 @@
+{
+  "name": "s121-protect-files-allows-git-add-example-and-lockfile",
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add .env.example" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add package.json package-lock.json" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "echo \"never git add .env\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s120: the allowlist (.env.example) still applies, lock files are protected from hand edits but committed as usual, and a mention isn't a git add."
+}

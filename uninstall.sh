@@ -1,0 +1,706 @@
+#!/usr/bin/env bash
+#
+# Agent Code Kit — Uninstaller
+#
+# Usage:
+#   ./uninstall.sh              # Interactive — shows what will be removed, asks for confirmation
+#   ./uninstall.sh --dry-run    # Show what would be removed without deleting anything
+#   ./uninstall.sh --force      # Remove everything without confirmation
+#   ./uninstall.sh --keep-tasks # Keep tasks/ directory (lessons, decisions, handoffs)
+#
+
+set -euo pipefail
+
+DEST="$(pwd)"
+DRY_RUN=false
+FORCE=false
+KEEP_TASKS=false
+KEEP_PROJECT=false
+KEEP_WIKI=false
+KEEP_ARTIFACTS=false
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+NC='\033[0m'
+
+info()  { echo -e "${BLUE}[info]${NC}  $*"; }
+ok()    { echo -e "${GREEN}[ok]${NC}    $*"; }
+warn()  { echo -e "${YELLOW}[warn]${NC}  $*"; }
+error() { echo -e "${RED}[error]${NC} $*"; exit 1; }
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dry-run|-n)
+      DRY_RUN=true
+      shift
+      ;;
+    --force|-f)
+      FORCE=true
+      shift
+      ;;
+    --keep-tasks|-k)
+      KEEP_TASKS=true
+      shift
+      ;;
+    --keep-project|-p)
+      KEEP_PROJECT=true
+      shift
+      ;;
+    --keep-wiki)
+      KEEP_WIKI=true
+      shift
+      ;;
+    --keep-artifacts)
+      KEEP_ARTIFACTS=true
+      shift
+      ;;
+    --help|-h)
+      echo "Usage: uninstall.sh [--dry-run] [--force] [--keep-tasks] [--keep-project] [--keep-wiki] [--keep-artifacts]"
+      echo ""
+      echo "Options:"
+      echo "  --dry-run, -n       Show what would be removed without deleting"
+      echo "  --force, -f         Remove without confirmation"
+      echo "  --keep-tasks, -k    Keep tasks/ directory (lessons, decisions, handoffs)"
+      echo "  --keep-project, -p  Keep project overlay files (CLAUDE.project.md, agent_docs/project/, .claude/hooks/project/)"
+      echo "  --keep-wiki         Keep WIKI.md, raw-sources/, and wiki/ (knowledge wiki module data)"
+      echo "  --keep-artifacts    Keep ARTIFACTS.md and artifacts/ (HTML artifacts module data)"
+      echo "  --help, -h          Show this help"
+      exit 0
+      ;;
+    *)
+      error "Unknown option: $1. Use --help for usage."
+      ;;
+  esac
+done
+
+echo ""
+echo "  Agent Code Kit — Uninstaller"
+echo "  =============================="
+echo ""
+
+# --- Detect what was installed ---
+
+FILES_TO_REMOVE=()
+DIRS_TO_REMOVE=()
+HAS_USER_DATA=false
+HAS_WIKI_USER_DATA=false
+HAS_ARTIFACTS_USER_DATA=false
+
+# Read the install manifest — the single record of what install.sh actually
+# shipped (scripts/lib/manifest.sh writes it). The path-based detection below is
+# coarse (whole directories); the manifest sweep at the end backstops it against
+# drift, so a file type a future kit version adds can't survive uninstall just
+# because this script's hardcoded paths weren't updated. Captured up front
+# because .kit-manifest is itself removed during uninstall.
+KIT_MANIFEST_ENTRIES=()
+if [ -f "$DEST/.kit-manifest" ]; then
+  while IFS= read -r _entry; do
+    [ -n "$_entry" ] && KIT_MANIFEST_ENTRIES+=("$_entry")
+  done < "$DEST/.kit-manifest"
+fi
+# The kit shares scripts/, agent_docs/ and .claude/{hooks,skills,agents}/ with
+# the project. With a manifest, only its entries are removed there (the backstop
+# at the end picks them up) and a directory goes only once it's empty. An
+# install from before the manifest can't tell the two apart, so those
+# directories are still removed whole — the listing below shows them first.
+HAVE_MANIFEST=false
+[ "${#KIT_MANIFEST_ENTRIES[@]}" -gt 0 ] && HAVE_MANIFEST=true
+SHARED_DIRS="agent_docs scripts .claude/hooks .claude/skills .claude/agents"
+
+# kit_wrote <path> — did the kit install the file at <path>? .kit-baseline
+# records every file the kit wrote; the manifest also lists a CLAUDE.md the
+# installer kept because the project already had one. Without a baseline
+# (installs from before it existed) there's no way to tell, so assume yes.
+kit_wrote() {
+  [ -f "$DEST/.kit-baseline" ] || return 0
+  [ -n "$(baseline_hash "$1")" ]
+}
+
+# baseline_hash <path> — the hash .kit-baseline records for <path>, if any.
+baseline_hash() {
+  awk -F'\t' -v p="$1" '$2 == p { print $1; exit }' "$DEST/.kit-baseline" 2>/dev/null
+}
+
+# file_hash <file> — same tool order as install.sh, so the hashes compare.
+file_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1"
+  else
+    return 1
+  fi
+}
+
+# The kit tree this script runs from (the npm package or a clone) holds the
+# scaffold and templates the installer copied, so a project file can be checked
+# against the kit's copy. Empty when that tree isn't here (piped from curl).
+KIT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+[ -d "$KIT_SRC/scaffold/tasks" ] && command -v cmp >/dev/null 2>&1 || KIT_SRC=""
+
+# same_as_kit <file> <kit-relative path> — is <file> still the kit's copy, byte
+# for byte?
+same_as_kit() {
+  [ -n "$KIT_SRC" ] && [ -f "$KIT_SRC/$2" ] && cmp -s "$1" "$KIT_SRC/$2"
+}
+
+# map_is_template — is CODEBASE_MAP.md still one of the kit's templates, as
+# installed? Once filled in it's the project's. Unknown without the kit tree,
+# so it stays.
+map_is_template() {
+  local t
+  [ -n "$KIT_SRC" ] || return 1
+  for t in "$KIT_SRC"/scaffold/CODEBASE_MAP.md "$KIT_SRC"/examples/*/CODEBASE_MAP.md; do
+    same_as_kit "$DEST/CODEBASE_MAP.md" "${t#"$KIT_SRC"/}" && return 0
+  done
+  return 1
+}
+
+# kit_leftover <path> — a file an older kit version wrote and nobody changed
+# since: .kit-baseline records it with the file's current hash, though the
+# manifest no longer lists it (an upgrade reported it as no longer shipped).
+kit_leftover() {
+  local want got
+  want=$(baseline_hash "$1")
+  [ -n "$want" ] || return 1
+  got=$(file_hash "$DEST/$1") || return 1
+  [ "$got" = "$want" ]
+}
+
+# manifest_covers <path> — is <path> a manifest entry, inside a directory entry,
+# or a .kit-new copy an upgrade wrote next to one?
+manifest_covers() {
+  local e
+  for e in ${KIT_MANIFEST_ENTRIES[@]+"${KIT_MANIFEST_ENTRIES[@]}"}; do
+    case "$1" in "$e"|"$e"/*|"$e".kit-new|"$e".kit-new.*) return 0 ;; esac
+  done
+  return 1
+}
+
+# Files in the shared directories the manifest doesn't list: an older kit
+# version's untouched leftovers are removed; everything else is the project's
+# own and stays. The overlay directories are handled on their own
+# (--keep-project).
+PROJECT_OWN=()
+LEFTOVERS_TO_REMOVE=()
+if [ "$HAVE_MANIFEST" = true ]; then
+  for _dir in $SHARED_DIRS; do
+    [ -d "$DEST/$_dir" ] || continue
+    while IFS= read -r _f; do
+      _rel="${_f#"$DEST"/}"
+      case "$_rel" in agent_docs/project/*|.claude/hooks/project/*) continue ;; esac
+      manifest_covers "$_rel" && continue
+      if kit_leftover "$_rel"; then
+        LEFTOVERS_TO_REMOVE+=("$_rel")
+      else
+        PROJECT_OWN+=("$_rel")
+      fi
+    done < <(find "$DEST/$_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
+  done
+fi
+
+# Root files
+[ -f "$DEST/VERSION" ] && FILES_TO_REMOVE+=("VERSION")
+[ -f "$DEST/.kit-manifest" ] && FILES_TO_REMOVE+=(".kit-manifest")
+if [ -f "$DEST/CLAUDE.md" ]; then
+  if kit_wrote "CLAUDE.md"; then
+    FILES_TO_REMOVE+=("CLAUDE.md")
+  else
+    PROJECT_OWN+=("CLAUDE.md")
+  fi
+fi
+if [ -f "$DEST/CODEBASE_MAP.md" ]; then
+  if map_is_template; then
+    FILES_TO_REMOVE+=("CODEBASE_MAP.md")
+  else
+    PROJECT_OWN+=("CODEBASE_MAP.md")
+  fi
+fi
+
+# Project overlay files
+PROJECT_FILES=()
+[ -f "$DEST/CLAUDE.project.md" ] && PROJECT_FILES+=("CLAUDE.project.md")
+[ -d "$DEST/agent_docs/project" ] && PROJECT_FILES+=("agent_docs/project/")
+[ -d "$DEST/.claude/hooks/project" ] && PROJECT_FILES+=(".claude/hooks/project/")
+
+if [ "$KEEP_PROJECT" = true ]; then
+  if [ "${#PROJECT_FILES[@]}" -gt 0 ]; then
+    warn "Keeping project overlay files (--keep-project)"
+  fi
+else
+  for f in ${PROJECT_FILES[@]+"${PROJECT_FILES[@]}"}; do
+    case "$f" in
+      */) DIRS_TO_REMOVE+=("$f") ;;
+      *)  FILES_TO_REMOVE+=("$f") ;;
+    esac
+  done
+fi
+
+# Directories (shared ones only without a manifest — see HAVE_MANIFEST)
+if [ -d "$DEST/agent_docs" ] && [ "$HAVE_MANIFEST" = false ]; then
+  if [ "$KEEP_PROJECT" = true ] && [ -d "$DEST/agent_docs/project" ]; then
+    # Remove kit files only, preserve project/ subdirectory
+    DIRS_TO_REMOVE+=("agent_docs/*.md")
+  else
+    DIRS_TO_REMOVE+=("agent_docs/")
+  fi
+fi
+[ -d "$DEST/scripts" ] && [ "$HAVE_MANIFEST" = false ] && DIRS_TO_REMOVE+=("scripts/")
+
+# tasks/ — may contain user data
+if [ -d "$DEST/tasks" ]; then
+  if [ "$KEEP_TASKS" = true ]; then
+    warn "Keeping tasks/ (--keep-tasks)"
+  else
+    # Check for user-generated content
+    TASK_FILES=0
+    if [ -n "$KIT_SRC" ]; then
+      # Anything that isn't byte for byte the kit's scaffold is the project's: an
+      # edited plan, index or decisions file, a new lesson, a handoff, a spec.
+      while IFS= read -r _f; do
+        same_as_kit "$_f" "scaffold/${_f#"$DEST"/}" || TASK_FILES=$((TASK_FILES + 1))
+      done < <(find "$DEST/tasks" -type f ! -name .DS_Store)
+    else
+      # Legacy: pre-v? single-file lessons.md (old format) — any presence is user data
+      if [ -f "$DEST/tasks/lessons.md" ]; then
+        TASK_FILES=$((TASK_FILES + 1))
+      fi
+      # Current: per-file lessons under tasks/lessons/ — count files beyond the shipped scaffold
+      # (_index.md, _TEMPLATE.md, and the dated example are kit-managed)
+      if [ -d "$DEST/tasks/lessons" ]; then
+        USER_LESSONS=$(find "$DEST/tasks/lessons" -maxdepth 1 -type f -name "*.md" \
+          ! -name "_index.md" ! -name "_TEMPLATE.md" ! -name "2026-04-15-example-tsconfig.md" \
+          2>/dev/null | wc -l | tr -d ' ')
+        if [ "$USER_LESSONS" -gt 0 ]; then
+          TASK_FILES=$((TASK_FILES + USER_LESSONS))
+        fi
+        # Also treat substantially edited _index.md as user data (Top Rules populated)
+        if [ -f "$DEST/tasks/lessons/_index.md" ]; then
+          TOP_RULES=$(awk '/^## Top Rules/{flag=1; next} /^---/{flag=0} flag && /^- /' "$DEST/tasks/lessons/_index.md" 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$TOP_RULES" -gt 0 ]; then
+            TASK_FILES=$((TASK_FILES + 1))
+          fi
+        fi
+      fi
+      if [ -f "$DEST/tasks/decisions.md" ]; then
+        DECISION_LINES=$(grep -c "^### ADR-" "$DEST/tasks/decisions.md" 2>/dev/null || echo "0")
+        if [ "$DECISION_LINES" -gt 1 ]; then
+          TASK_FILES=$((TASK_FILES + 1))
+        fi
+      fi
+      # find is pipefail-safe when no matches (unlike ls glob)
+      HANDOFF_COUNT=$(find "$DEST/tasks" -maxdepth 1 -type f -name "handoff-*.md" 2>/dev/null | wc -l | tr -d ' ')
+      if [ "$HANDOFF_COUNT" -gt 0 ]; then
+        TASK_FILES=$((TASK_FILES + HANDOFF_COUNT))
+      fi
+    fi
+
+    if [ "$TASK_FILES" -gt 0 ]; then
+      HAS_USER_DATA=true
+    fi
+
+    DIRS_TO_REMOVE+=("tasks/")
+  fi
+fi
+
+# Wiki module (optional, installed via --wiki) — may contain user data
+WIKI_PRESENT=false
+if [ -f "$DEST/WIKI.md" ] || [ -d "$DEST/wiki" ] || [ -d "$DEST/raw-sources" ]; then
+  WIKI_PRESENT=true
+fi
+if [ "$WIKI_PRESENT" = true ]; then
+  if [ "$KEEP_WIKI" = true ]; then
+    warn "Keeping WIKI.md, wiki/, raw-sources/ (--keep-wiki)"
+  else
+    # User-data detection: any source file, or wiki pages beyond seed
+    WIKI_USER_FILES=0
+    if [ -d "$DEST/raw-sources" ]; then
+      RAW_COUNT=$(find "$DEST/raw-sources" -mindepth 1 -type f ! -name ".DS_Store" 2>/dev/null | wc -l | tr -d ' ')
+      WIKI_USER_FILES=$((WIKI_USER_FILES + RAW_COUNT))
+    fi
+    if [ -d "$DEST/wiki" ]; then
+      for sub in summaries entities concepts; do
+        if [ -d "$DEST/wiki/$sub" ]; then
+          SUB_COUNT=$(find "$DEST/wiki/$sub" -mindepth 1 -type f ! -name ".DS_Store" 2>/dev/null | wc -l | tr -d ' ')
+          WIKI_USER_FILES=$((WIKI_USER_FILES + SUB_COUNT))
+        fi
+      done
+      # log.md beyond seed (template has just the header line)
+      if [ -f "$DEST/wiki/log.md" ]; then
+        LOG_LINES=$(wc -l < "$DEST/wiki/log.md" | tr -d ' ')
+        [ "$LOG_LINES" -gt 1 ] && WIKI_USER_FILES=$((WIKI_USER_FILES + 1))
+      fi
+    fi
+    if [ "$WIKI_USER_FILES" -gt 0 ]; then
+      HAS_WIKI_USER_DATA=true
+    fi
+
+    [ -f "$DEST/WIKI.md" ] && FILES_TO_REMOVE+=("WIKI.md")
+    [ -d "$DEST/wiki" ] && DIRS_TO_REMOVE+=("wiki/")
+    [ -d "$DEST/raw-sources" ] && DIRS_TO_REMOVE+=("raw-sources/")
+  fi
+fi
+
+# HTML artifacts module (optional, installed via --html) — may contain user data
+ARTIFACTS_PRESENT=false
+if [ -f "$DEST/ARTIFACTS.md" ] || [ -d "$DEST/artifacts" ]; then
+  ARTIFACTS_PRESENT=true
+fi
+if [ "$ARTIFACTS_PRESENT" = true ]; then
+  if [ "$KEEP_ARTIFACTS" = true ]; then
+    warn "Keeping ARTIFACTS.md, artifacts/ (--keep-artifacts)"
+  else
+    # User-data detection: any artifact file beyond the two seed templates
+    if [ -d "$DEST/artifacts" ]; then
+      ART_USER_FILES=$(find "$DEST/artifacts" -mindepth 1 -maxdepth 1 -type f \
+        ! -name "design-system.html" ! -name "index.html" ! -name ".DS_Store" 2>/dev/null | wc -l | tr -d ' ')
+      if [ "$ART_USER_FILES" -gt 0 ]; then
+        HAS_ARTIFACTS_USER_DATA=true
+      fi
+    fi
+
+    [ -f "$DEST/ARTIFACTS.md" ] && FILES_TO_REMOVE+=("ARTIFACTS.md")
+    [ -d "$DEST/artifacts" ] && DIRS_TO_REMOVE+=("artifacts/")
+  fi
+fi
+
+# .claude/ subdirectories (shared ones only without a manifest — see HAVE_MANIFEST)
+CLAUDE_DIRS_TO_REMOVE=()
+if [ -d "$DEST/.claude/hooks" ] && [ "$HAVE_MANIFEST" = false ]; then
+  if [ "$KEEP_PROJECT" = true ] && [ -d "$DEST/.claude/hooks/project" ]; then
+    # Remove kit hooks only, preserve project/ subdirectory
+    CLAUDE_DIRS_TO_REMOVE+=(".claude/hooks/*.sh")
+  else
+    CLAUDE_DIRS_TO_REMOVE+=(".claude/hooks/")
+  fi
+fi
+[ -d "$DEST/.claude/agents" ] && [ "$HAVE_MANIFEST" = false ] && CLAUDE_DIRS_TO_REMOVE+=(".claude/agents/")
+[ -d "$DEST/.claude/skills" ] && [ "$HAVE_MANIFEST" = false ] && CLAUDE_DIRS_TO_REMOVE+=(".claude/skills/")
+
+CLAUDE_FILES_TO_REMOVE=()
+[ -f "$DEST/.claude/settings.json" ] && CLAUDE_FILES_TO_REMOVE+=(".claude/settings.json")
+# Kit owns only extensions/README.md; user-installed extensions are preserved.
+[ -f "$DEST/.claude/extensions/README.md" ] && CLAUDE_FILES_TO_REMOVE+=(".claude/extensions/README.md")
+
+# --- Manifest backstop set ---
+# Anything the manifest recorded that the coarse path-based detection above does
+# NOT already cover (drift: files a kit version ships but this script's hardcoded
+# paths don't remove — e.g. .claude/*.example templates). Honors the --keep-*
+# groups. Computed here so it shows in --dry-run and is removed for real alike.
+manifest_entry_covered() {
+  local p="$1" r pre ext
+  for r in ${FILES_TO_REMOVE[@]+"${FILES_TO_REMOVE[@]}"} ${CLAUDE_FILES_TO_REMOVE[@]+"${CLAUDE_FILES_TO_REMOVE[@]}"}; do
+    [ "$p" = "$r" ] && return 0
+  done
+  for r in ${DIRS_TO_REMOVE[@]+"${DIRS_TO_REMOVE[@]}"} ${CLAUDE_DIRS_TO_REMOVE[@]+"${CLAUDE_DIRS_TO_REMOVE[@]}"}; do
+    case "$r" in
+      */\*.sh|*/\*.md)
+        # A glob entry (e.g. .claude/hooks/*.sh, kept whole under --keep-project)
+        # covers only DIRECT children matching the pattern — NOT subdirs such as
+        # the manifest's .claude/hooks/lib, which the backstop must still remove.
+        pre="${r%/*}"; ext="${r##*.}"
+        case "$p" in
+          "$pre"/*/*) ;;                 # deeper than a direct child — not covered
+          "$pre"/*.$ext) return 0 ;;     # direct child with the pattern's extension
+        esac
+        ;;
+      *)
+        # A whole-directory entry covers everything beneath it.
+        pre="${r%/}"
+        case "$p" in "$pre"/*) return 0 ;; esac
+        ;;
+    esac
+  done
+  return 1
+}
+
+BACKSTOP_TO_REMOVE=()
+for _entry in ${KIT_MANIFEST_ENTRIES[@]+"${KIT_MANIFEST_ENTRIES[@]}"}; do
+  case "$_entry" in
+    tasks/*)      [ "$KEEP_TASKS" = true ] && continue ;;
+    WIKI.md)      [ "$KEEP_WIKI" = true ] && continue ;;
+    ARTIFACTS.md) [ "$KEEP_ARTIFACTS" = true ] && continue ;;
+    CLAUDE.md)    kit_wrote "CLAUDE.md" || continue ;;
+    CODEBASE_MAP.md) map_is_template || continue ;;
+  esac
+  # .kit-new copies an upgrade left next to a kit file go with it.
+  for _new in "$DEST/$_entry".kit-new "$DEST/$_entry".kit-new.*; do
+    if [ -e "$_new" ] && ! manifest_entry_covered "${_new#"$DEST"/}"; then
+      BACKSTOP_TO_REMOVE+=("${_new#"$DEST"/}")
+    fi
+  done
+  [ -e "$DEST/$_entry" ] || continue
+  manifest_entry_covered "$_entry" && continue
+  BACKSTOP_TO_REMOVE+=("$_entry")
+done
+
+# --- Nothing to remove? ---
+
+TOTAL=$(( ${#FILES_TO_REMOVE[@]} + ${#DIRS_TO_REMOVE[@]} + ${#CLAUDE_DIRS_TO_REMOVE[@]} + ${#CLAUDE_FILES_TO_REMOVE[@]} + ${#BACKSTOP_TO_REMOVE[@]} + ${#LEFTOVERS_TO_REMOVE[@]} ))
+
+if [ "$TOTAL" -eq 0 ]; then
+  info "No Agent Code Kit files found in $(pwd)"
+  echo "  Nothing to remove."
+  echo ""
+  exit 0
+fi
+
+# --- Show what will be removed ---
+
+echo -e "  ${CYAN}Files to remove:${NC}"
+echo ""
+
+if [ ${#FILES_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${FILES_TO_REMOVE[@]}"; do
+    echo -e "    ${RED}✕${NC} $f"
+  done
+fi
+
+if [ ${#DIRS_TO_REMOVE[@]} -gt 0 ]; then
+  for d in "${DIRS_TO_REMOVE[@]}"; do
+    if [ "$d" = "tasks/" ] && [ "$HAS_USER_DATA" = true ]; then
+      echo -e "    ${RED}✕${NC} $d ${YELLOW}(contains your data!)${NC}"
+    elif { [ "$d" = "wiki/" ] || [ "$d" = "raw-sources/" ]; } && [ "$HAS_WIKI_USER_DATA" = true ]; then
+      echo -e "    ${RED}✕${NC} $d ${YELLOW}(contains your data!)${NC}"
+    elif [ "$d" = "artifacts/" ] && [ "$HAS_ARTIFACTS_USER_DATA" = true ]; then
+      echo -e "    ${RED}✕${NC} $d ${YELLOW}(contains your data!)${NC}"
+    else
+      echo -e "    ${RED}✕${NC} $d"
+    fi
+  done
+fi
+
+if [ ${#CLAUDE_DIRS_TO_REMOVE[@]} -gt 0 ]; then
+  for d in "${CLAUDE_DIRS_TO_REMOVE[@]}"; do
+    echo -e "    ${RED}✕${NC} $d"
+  done
+fi
+
+if [ ${#CLAUDE_FILES_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${CLAUDE_FILES_TO_REMOVE[@]}"; do
+    echo -e "    ${RED}✕${NC} $f"
+  done
+fi
+
+if [ ${#BACKSTOP_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${BACKSTOP_TO_REMOVE[@]}"; do
+    echo -e "    ${RED}✕${NC} $f ${DIM}(manifest)${NC}"
+  done
+fi
+if [ ${#LEFTOVERS_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${LEFTOVERS_TO_REMOVE[@]}"; do
+    echo -e "    ${RED}✕${NC} $f ${DIM}(left by an older kit version, unchanged)${NC}"
+  done
+fi
+
+if [ ${#PROJECT_OWN[@]} -gt 0 ]; then
+  echo ""
+  echo -e "  ${CYAN}Kept — the kit didn't install these:${NC}"
+  echo ""
+  for f in "${PROJECT_OWN[@]}"; do
+    echo -e "    ${GREEN}✓${NC} $f"
+  done
+fi
+
+# Check if .claude/ will be empty after removal
+CLAUDE_WILL_BE_EMPTY=false
+if [ -d "$DEST/.claude" ]; then
+  # Count items that will remain in .claude/ after removal
+  REMAINING=0
+  for item in "$DEST/.claude/"*; do
+    [ -e "$item" ] || continue
+    basename=$(basename "$item")
+    # Skip items we're removing
+    case "$basename" in
+      hooks|agents|skills)
+        # Only the kit's files leave these; the project's own keep them.
+        for _own in ${PROJECT_OWN[@]+"${PROJECT_OWN[@]}"}; do
+          case "$_own" in ".claude/$basename"/*) REMAINING=$((REMAINING + 1)); break ;; esac
+        done
+        continue
+        ;;
+      settings.json|settings.local.json) continue ;;
+      .DS_Store) continue ;;
+      extensions)
+        # kit owns only extensions/README.md; count as remaining only if the
+        # user installed their own extensions under it.
+        [ -n "$(ls -A "$item" 2>/dev/null | grep -vx 'README.md')" ] && REMAINING=$((REMAINING + 1))
+        continue
+        ;;
+      *)
+        # A .claude/ item the manifest backstop will remove doesn't count as remaining.
+        _rel=".claude/$basename"; _covered=0
+        for _b in ${BACKSTOP_TO_REMOVE[@]+"${BACKSTOP_TO_REMOVE[@]}"}; do
+          case "$_b" in "$_rel"|"$_rel"/*) _covered=1; break ;; esac
+        done
+        [ "$_covered" -eq 1 ] || REMAINING=$((REMAINING + 1))
+        ;;
+    esac
+  done
+  if [ "$REMAINING" -eq 0 ]; then
+    CLAUDE_WILL_BE_EMPTY=true
+    echo -e "    ${DIM}(will also remove empty .claude/ directory)${NC}"
+  fi
+fi
+
+echo ""
+
+# Warn about user data
+if [ "$HAS_USER_DATA" = true ]; then
+  warn "tasks/ contains your session data (lessons, decisions, or handoffs)"
+  echo -e "       Use ${CYAN}--keep-tasks${NC} to preserve it"
+  echo ""
+fi
+
+# Warn about wiki user data
+if [ "$HAS_WIKI_USER_DATA" = true ]; then
+  warn "wiki/ or raw-sources/ contains your knowledge data (ingested sources, wiki pages)"
+  echo -e "       Use ${CYAN}--keep-wiki${NC} to preserve WIKI.md + wiki/ + raw-sources/"
+  echo ""
+fi
+
+# Warn about artifacts user data
+if [ "$HAS_ARTIFACTS_USER_DATA" = true ]; then
+  warn "artifacts/ contains your generated HTML artifacts (specs, reports, etc.)"
+  echo -e "       Use ${CYAN}--keep-artifacts${NC} to preserve ARTIFACTS.md + artifacts/"
+  echo ""
+fi
+
+# Warn about project overlay files being removed
+if [ "$KEEP_PROJECT" = false ] && [ "${#PROJECT_FILES[@]}" -gt 0 ]; then
+  warn "Project overlay files will be removed (your project-specific customizations)"
+  echo -e "       Use ${CYAN}--keep-project${NC} to preserve them"
+  echo ""
+fi
+
+# --- Dry run exits here ---
+
+if [ "$DRY_RUN" = true ]; then
+  info "Dry run — nothing was removed"
+  echo ""
+  exit 0
+fi
+
+# --- Confirm ---
+
+if [ "$FORCE" != true ]; then
+  read -p "  Remove all listed files? (y/N) " -n 1 -r < /dev/tty
+  echo ""
+  echo ""
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    info "Cancelled."
+    echo ""
+    exit 0
+  fi
+fi
+
+# --- Remove ---
+
+# Root files
+if [ ${#FILES_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${FILES_TO_REMOVE[@]}"; do
+    rm -f "$DEST/$f"
+    ok "Removed $f"
+  done
+fi
+
+# Directories
+if [ ${#DIRS_TO_REMOVE[@]} -gt 0 ]; then
+  for d in "${DIRS_TO_REMOVE[@]}"; do
+    case "$d" in
+      *\*.md|*\*.sh)
+        # Glob pattern — remove matching files, then try to rmdir the parent
+        local_dir="${d%/*}"
+        rm -f "$DEST/"$d 2>/dev/null
+        rmdir "$DEST/$local_dir" 2>/dev/null || true
+        ok "Removed kit files from $local_dir/"
+        ;;
+      *)
+        rm -rf "$DEST/$d"
+        ok "Removed $d"
+        ;;
+    esac
+  done
+fi
+
+# .claude/ subdirectories
+if [ ${#CLAUDE_DIRS_TO_REMOVE[@]} -gt 0 ]; then
+  for d in "${CLAUDE_DIRS_TO_REMOVE[@]}"; do
+    case "$d" in
+      *\*.sh)
+        # Glob pattern — remove matching files, then try to rmdir the parent
+        local_dir="${d%/*}"
+        rm -f "$DEST/"$d 2>/dev/null
+        rmdir "$DEST/$local_dir" 2>/dev/null || true
+        ok "Removed kit files from $local_dir/"
+        ;;
+      *)
+        rm -rf "$DEST/$d"
+        ok "Removed $d"
+        ;;
+    esac
+  done
+fi
+
+# .claude/ files
+if [ ${#CLAUDE_FILES_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${CLAUDE_FILES_TO_REMOVE[@]}"; do
+    rm -f "$DEST/$f"
+    ok "Removed $f"
+  done
+fi
+
+# Manifest backstop — remove drift the path-based detection above didn't cover.
+if [ ${#BACKSTOP_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${BACKSTOP_TO_REMOVE[@]}"; do
+    rm -rf "$DEST/$f"
+    ok "Removed $f (manifest)"
+    # Tidy an immediate parent dir the sweep may have emptied (e.g. a new top-level dir).
+    _parent="${f%/*}"
+    [ "$_parent" != "$f" ] && rmdir "$DEST/$_parent" 2>/dev/null || true
+  done
+fi
+if [ ${#LEFTOVERS_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${LEFTOVERS_TO_REMOVE[@]}"; do
+    rm -f "$DEST/$f"
+    ok "Removed $f (older kit version)"
+  done
+fi
+
+# Shared directories go once the kit's files are out, and only if nothing is left.
+for _dir in .claude/hooks/lib .claude/hooks .claude/skills .claude/agents scripts agent_docs; do
+  [ -d "$DEST/$_dir" ] || continue
+  rm -f "$DEST/$_dir/.DS_Store"
+  rmdir "$DEST/$_dir" 2>/dev/null && ok "Removed empty $_dir/" || true
+done
+
+# Remove the extensions/ slot only if it's now empty (user extensions preserved).
+if [ -d "$DEST/.claude/extensions" ]; then
+  rm -f "$DEST/.claude/extensions/.DS_Store"
+  rmdir "$DEST/.claude/extensions" 2>/dev/null && ok "Removed empty .claude/extensions/" || true
+fi
+
+# Clean up empty .claude/ directory
+if [ "$CLAUDE_WILL_BE_EMPTY" = true ] && [ -d "$DEST/.claude" ]; then
+  # Remove .DS_Store if it's the only thing left
+  rm -f "$DEST/.claude/.DS_Store"
+  rmdir "$DEST/.claude" 2>/dev/null && ok "Removed empty .claude/" || true
+fi
+
+echo ""
+echo "  Agent Code Kit has been removed."
+if [ ${#PROJECT_OWN[@]} -gt 0 ]; then
+  echo "  Kept ${#PROJECT_OWN[@]} file(s) the kit didn't install (listed above)."
+fi
+echo ""
+echo "  Note: Your .gitignore was not modified."
+echo "  You may want to remove kit-related entries manually."
+echo ""

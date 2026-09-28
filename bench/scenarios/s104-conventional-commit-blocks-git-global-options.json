@@ -1,0 +1,16 @@
+{
+  "name": "s104-conventional-commit-blocks-git-global-options",
+  "steps": [
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -c user.name=x commit -m \"updated stuff\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git -C sub commit -m \"updated stuff\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "The hook matched `git\\s+commit`, so git's own options before the subcommand (-c k=v, -C dir) skipped the check (exit 0)."
+}

@@ -1,0 +1,72 @@
+{
+  "name": "s51-quality-gate-worktree-isolation",
+  "setup_commands": [
+    "git init -q . && git -c user.name=kitbench -c user.email=kitbench@example.invalid commit -q --allow-empty -m init && git worktree add -q -b kitbench-wt wt"
+  ],
+  "steps": [
+    {
+      "hook": ".claude/hooks/quality-gate.sh",
+      "setup_files": {
+        "wt/src/broken.py": "def hello(\n    return 1\n"
+      },
+      "payload": {
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "{TMPROOT}/wt/src/broken.py"
+        },
+        "session_id": "s51"
+      },
+      "expect": {
+        "exit_code": 0,
+        "state": [
+          {
+            "file": "wt/.hook-state/last_quality_gate.json",
+            "field": "status",
+            "equals": "failed"
+          }
+        ],
+        "file_absent": [
+          ".hook-state/last_quality_gate.json"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/stop-gate.sh",
+      "payload": {
+        "cwd": "{TMPROOT}",
+        "session_id": "s51"
+      },
+      "expect": {
+        "exit_code": 2,
+        "stderr_contains": [
+          "BLOCKED",
+          "broken.py"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/stop-gate.sh",
+      "payload": {
+        "cwd": "{TMPROOT}/wt",
+        "session_id": "s51"
+      },
+      "expect": {
+        "exit_code": 2,
+        "stderr_contains": [
+          "BLOCKED"
+        ]
+      }
+    },
+    {
+      "hook": ".claude/hooks/stop-gate.sh",
+      "payload": {
+        "cwd": "{TMPROOT}",
+        "session_id": "another-session"
+      },
+      "expect": {
+        "exit_code": 0
+      }
+    }
+  ],
+  "notes": "A broken edit inside a git worktree. Its result is stored in that worktree — the main checkout's .hook-state gets no verdict, and declared checks run against the worktree's code. It is still the session's: a stop from the main checkout or from the worktree blocks; another session's stop doesn't."
+}

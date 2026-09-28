@@ -1,0 +1,16 @@
+{
+  "name": "s133-loop-detect-warning-reaches-claude",
+  "hook": ".claude/hooks/loop-detect.sh",
+  "setup_files": {
+    ".hook-state/loop-detect-session.log": "src/foo.ts\nsrc/foo.ts\nsrc/foo.ts\n"
+  },
+  "payload": { "tool_name": "Edit", "tool_input": { "file_path": "src/foo.ts" } },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"WARNING: src/foo.ts has been edited 4 times"
+    ],
+    "stderr_not_contains": ["WARNING"]
+  },
+  "notes": "The 4th-edit warning went to plain stdout at exit 0 — the debug log for PostToolUse, never Claude. It is now PostToolUse additionalContext JSON; the 6th-edit block (s37) still exits 2 with its message on stderr."
+}

@@ -1,0 +1,10 @@
+{
+  "name": "s102-conventional-commit-allows-heredoc-goodmsg",
+  "hook": ".claude/hooks/conventional-commit.sh",
+  "payload": {
+    "tool_name": "Bash",
+    "tool_input": { "command": "git add src/search.ts && git commit -m \"$(cat <<'EOF'\nfeat(search): add the search endpoint\n\nHandles \"quoted\" terms, (parens), 'apostrophes' and `backticks`.\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"" }
+  },
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "Guard for s101: quotes, parentheses and backticks inside the heredoc body are literal text, so a conventional subject passes."
+}

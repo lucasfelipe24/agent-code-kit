@@ -1,0 +1,30 @@
+{
+  "name": "s103-conventional-commit-checks-message-file",
+  "setup_files": {
+    "msg.txt": "WIP stuff\n",
+    "good.txt": "\nfix: handle a null response from the auth API\n\nBody.\n"
+  },
+  "steps": [
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -F msg.txt" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["WIP stuff"] }
+    },
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit --file=good.txt" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -F missing.txt" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -F - <<'EOF'\nWIP stuff\nEOF" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "git commit -F <file> went unchecked (exit 0). The file's first non-empty line is the subject (relative paths resolve against the command's cwd); a file that doesn't exist is allowed, and -F - checks the heredoc that feeds it."
+}

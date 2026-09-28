@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+#
+# validate-skills.sh — Validate skill files for completeness and quality
+#
+# Checks:
+#   - YAML frontmatter (name, description)
+#   - Required sections (Problem, Solution, Verification)
+#   - Description quality (length, specificity)
+#   - Extended structure consistency (if references/ exists)
+#
+# Usage: ./scripts/validate-skills.sh [path/to/skills]
+#
+
+set -euo pipefail
+
+SKILLS_DIR="${1:-.claude/skills}"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+PASS=0
+FAIL=0
+WARN=0
+
+pass() { echo -e "  ${GREEN}✓${NC} $1"; PASS=$((PASS + 1)); }
+fail() { echo -e "  ${RED}✗${NC} $1"; FAIL=$((FAIL + 1)); }
+warn() { echo -e "  ${YELLOW}!${NC} $1"; WARN=$((WARN + 1)); }
+
+if [ ! -d "$SKILLS_DIR" ]; then
+  echo "No skills directory found at $SKILLS_DIR"
+  exit 0
+fi
+
+echo ""
+echo "  Skill Validator"
+echo "  ==============="
+echo ""
+
+SKILL_COUNT=0
+
+for skill_dir in "$SKILLS_DIR"/*/; do
+  [ -d "$skill_dir" ] || continue
+
+  skill_name=$(basename "$skill_dir")
+
+  # Skip infrastructure directories
+  case "$skill_name" in
+    _*) continue ;;
+  esac
+  SKILL_FILE="$skill_dir/SKILL.md"
+
+  echo "  $skill_name/"
+  echo "  $(printf '%*s' ${#skill_name} '' | tr ' ' '-')--"
+
+  if [ ! -f "$SKILL_FILE" ]; then
+    fail "SKILL.md missing"
+    echo ""
+    continue
+  fi
+
+  SKILL_COUNT=$((SKILL_COUNT + 1))
+
+  # --- Check YAML frontmatter ---
+  # Exact-match the first line rather than `head | grep -q` — under `set -o
+  # pipefail` a quiet grep can close the pipe early and surface the writer's
+  # SIGPIPE as the pipeline status, which made section checks flake.
+  if [ "$(head -1 "$SKILL_FILE")" = "---" ]; then
+    pass "Has YAML frontmatter"
+
+    # Extract frontmatter (between first --- and second ---)
+    FRONTMATTER=$(sed -n '/^---$/,/^---$/p' "$SKILL_FILE" | sed '1d;$d')
+
+    # Check name field
+    FM_NAME=$(echo "$FRONTMATTER" | grep -E '^name:' | sed 's/^name:[[:space:]]*//' || echo "")
+    if [ -n "$FM_NAME" ]; then
+      pass "name: $FM_NAME"
+    else
+      fail "Missing 'name' in frontmatter"
+    fi
+
+    # Check description field
+    FM_DESC=$(echo "$FRONTMATTER" | grep -E '^description:' | sed 's/^description:[[:space:]]*//' || echo "")
+    if [ -n "$FM_DESC" ]; then
+      DESC_LEN=${#FM_DESC}
+      if [ "$DESC_LEN" -lt 40 ]; then
+        warn "Description very short ($DESC_LEN chars) — router-style descriptions pair a capability with a 'Use when…' trigger"
+      elif [ "$DESC_LEN" -gt 500 ]; then
+        warn "Description too long ($DESC_LEN chars) — keep under ~500; move detail into the body"
+      else
+        pass "description: $FM_DESC"
+      fi
+      # Router-style nudge: the description should say WHEN to fire, not just what it does
+      if ! grep -qiE 'use (when|for|to|it|right|once|at|before|after|as|during|instead)|when the user|distinct from|do not use|triggers? on' <<< "$FM_DESC"; then
+        warn "Description has no 'Use when…' trigger clause — router-style descriptions match better (see agent_docs/skills.md → Skill Conventions → Router-style description)"
+      fi
+    else
+      fail "Missing 'description' in frontmatter"
+    fi
+
+    # --- Check allowed-tools scoping (optional, defense-in-depth) ---
+    # Opt-in: absence never fails. When declared inline it must carry a value;
+    # token syntax is intentionally NOT validated against a fixed list — Claude
+    # Code allows forms like `Bash(git log:*)` a naive pattern would reject, and
+    # a hardcoded tool list ages. See agent_docs/skills.md → Tool scoping.
+    if grep -qE '^allowed-tools:' <<< "$FRONTMATTER"; then
+      FM_TOOLS=$(echo "$FRONTMATTER" | grep -E '^allowed-tools:' | sed 's/^allowed-tools:[[:space:]]*//')
+      if [ -n "$FM_TOOLS" ]; then
+        pass "allowed-tools scoped: $FM_TOOLS"
+      else
+        fail "allowed-tools declared but empty — list the tools inline (e.g. 'Read, Grep, Glob'), or remove the key"
+      fi
+    fi
+  else
+    fail "No YAML frontmatter (must start with ---)"
+    echo ""
+    continue
+  fi
+
+  # --- Check required sections ---
+  CONTENT=$(cat "$SKILL_FILE")
+
+  # Detect if skill is user-invocable (audit/guide skills have different sections)
+  IS_USER_INVOCABLE=$(echo "$FRONTMATTER" | grep -E '^user-invocable:[[:space:]]*true' || echo "")
+
+  # For skill-extractor, sections are different (it's a meta-skill)
+  if [ "$skill_name" = "skill-extractor" ]; then
+    for section in "When to Extract" "When NOT to Extract" "Extraction Process" "Quality Gates"; do
+      if grep -q "## $section" <<< "$CONTENT"; then
+        pass "Has section: $section"
+      else
+        warn "Missing section: $section"
+      fi
+    done
+  elif [ -n "$IS_USER_INVOCABLE" ]; then
+    # User-invocable skills (audits, guides) use When to Use / Process / Output Format
+    for section in "When to Use" "Process" "Output Format"; do
+      if grep -q "## $section" <<< "$CONTENT"; then
+        pass "Has section: $section"
+      else
+        fail "Missing required section: $section"
+      fi
+    done
+
+    # Optional but recommended sections for user-invocable skills
+    for section in "Notes"; do
+      if grep -q "## $section" <<< "$CONTENT"; then
+        pass "Has section: $section"
+      else
+        warn "Missing optional section: $section"
+      fi
+    done
+  else
+    for section in "Problem" "Solution" "Verification"; do
+      if grep -q "## $section" <<< "$CONTENT"; then
+        pass "Has section: $section"
+      else
+        fail "Missing required section: $section"
+      fi
+    done
+
+    # Optional but recommended sections
+    for section in "Context" "Notes"; do
+      if grep -q "## $section" <<< "$CONTENT"; then
+        pass "Has section: $section"
+      else
+        warn "Missing optional section: $section"
+      fi
+    done
+  fi
+
+  # --- Check Core Rule (v1.11+ pattern, codex-inspired) ---
+  if grep -q "^## Core Rule$" <<< "$CONTENT"; then
+    pass "Has Core Rule"
+  else
+    warn "Missing ## Core Rule section (one-sentence ethical scope — see agent_docs/skills.md)"
+  fi
+
+  # --- Check Default Behavior + Phase 1 Inventory (audit skills only) ---
+  # The kit's "audit-class" skills are an explicit set — direct report producers.
+  # Other skills with Output Format (review-pipeline, deepening-review, pulse, retro)
+  # are meta or interactive and don't need the same patterns.
+  case "$skill_name" in
+    code-quality-audit|performance-audit|architecture-review|accessibility-audit|testing-audit|dependency-audit|documentation-audit|design-review|project-health-report|dead-code-audit|quality-audit|doc-gardening|references-sync)
+      if grep -q "^## Default Behavior$" <<< "$CONTENT"; then
+        pass "Has Default Behavior (audit skill)"
+      else
+        warn "Missing ## Default Behavior section (audit skill should autonomously act on 'audit/scan/review' requests)"
+      fi
+
+      if grep -q "^### Phase 1: Inventory (first-pass leads)$" <<< "$CONTENT"; then
+        pass "Phase 1 uses standard Inventory naming"
+      elif grep -q "^### Phase 1:" <<< "$CONTENT"; then
+        warn "Phase 1 not standardized as 'Inventory (first-pass leads)' — see agent_docs/skills.md"
+      fi
+      ;;
+  esac
+
+  # --- Check for unfilled placeholders (excluding code blocks) ---
+  PLACEHOLDERS=$(awk '/^```/{skip=!skip;next} !skip && !/`/' "$SKILL_FILE" | grep -cE '<[^>]+(name|description|language|skill|check|command|pattern)>' 2>/dev/null || echo "0")
+  PLACEHOLDERS=$(echo "$PLACEHOLDERS" | tr -d '[:space:]')
+  if [ "$PLACEHOLDERS" -gt 0 ] 2>/dev/null; then
+    warn "$PLACEHOLDERS unfilled placeholder(s) found"
+  fi
+
+  # --- Check code examples ---
+  CODE_BLOCKS=$(grep -c '```' "$SKILL_FILE" 2>/dev/null || echo "0")
+  CODE_BLOCKS=$(echo "$CODE_BLOCKS" | tr -d '[:space:]')
+  # Each code block has opening and closing ```, so divide by 2
+  if [ "$CODE_BLOCKS" -ge 2 ] 2>/dev/null; then
+    pass "Has code examples ($((CODE_BLOCKS / 2)) block(s))"
+  else
+    warn "No code examples — skills with code examples are more useful"
+  fi
+
+  # --- Check extended structure (if references/ exists) ---
+  if [ -d "$skill_dir/references" ]; then
+    pass "Has references/ directory"
+
+    for ref_file in patterns.md anti-patterns.md checklist.md; do
+      if [ -f "$skill_dir/references/$ref_file" ]; then
+        # Check it's not empty (more than just a heading)
+        LINE_COUNT=$(wc -l < "$skill_dir/references/$ref_file" | tr -d ' ')
+        if [ "$LINE_COUNT" -lt 5 ]; then
+          warn "references/$ref_file is too short ($LINE_COUNT lines)"
+        else
+          pass "references/$ref_file ($LINE_COUNT lines)"
+        fi
+      fi
+    done
+  fi
+
+  # --- Check resources/ for templates ---
+  if [ -d "$skill_dir/resources" ]; then
+    RES_COUNT=$(find "$skill_dir/resources" -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
+    pass "Has resources/ ($RES_COUNT template(s))"
+  fi
+
+  echo ""
+done
+
+# --- Cross-layer collision check (Layer 2 vs Layer 4) ---
+# See agent_docs/skills.md → Extending the Kit (Resolution Order) and ADR-015.
+# If a community extension at .claude/extensions/<name>/ shares a name with a
+# kit-core skill at .claude/skills/<name>/, the resolution becomes filesystem-
+# order-dependent. Warn so the user can rename or upstream.
+EXTENSIONS_DIR="${SKILLS_DIR%/skills}/extensions"
+if [ -d "$EXTENSIONS_DIR" ]; then
+  echo "  Cross-layer collision check"
+  echo "  ---------------------------"
+  COLLISION_COUNT=0
+  for ext_dir in "$EXTENSIONS_DIR"/*/; do
+    [ -d "$ext_dir" ] || continue
+    ext_name=$(basename "$ext_dir")
+    # Skip docs / non-skill content (only directories with SKILL.md count)
+    [ -f "$ext_dir/SKILL.md" ] || continue
+    if [ -d "$SKILLS_DIR/$ext_name" ] && [ -f "$SKILLS_DIR/$ext_name/SKILL.md" ]; then
+      warn "Name collision: '$ext_name' exists in both core (.claude/skills/) and extensions (.claude/extensions/). Resolution becomes filesystem-order-dependent. Rename the extension or upstream it to kit core."
+      COLLISION_COUNT=$((COLLISION_COUNT + 1))
+    fi
+  done
+  if [ "$COLLISION_COUNT" -eq 0 ]; then
+    pass "No name collisions between core skills and extensions"
+  fi
+  echo ""
+fi
+
+# --- Summary ---
+echo "  Summary"
+echo "  -------"
+echo -e "  $SKILL_COUNT skill(s) checked"
+echo -e "  ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}, ${YELLOW}$WARN warnings${NC}"
+echo ""
+
+if [ "$FAIL" -gt 0 ]; then
+  echo "  Some checks failed. Fix the issues above."
+  exit 1
+else
+  echo "  All skills look good!"
+fi
+echo ""

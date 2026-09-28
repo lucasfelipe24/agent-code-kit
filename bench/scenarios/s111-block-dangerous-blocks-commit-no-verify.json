@@ -1,0 +1,21 @@
+{
+  "name": "s111-block-dangerous-blocks-commit-no-verify",
+  "steps": [
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit --no-verify -m \"feat: add search\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["git hooks"] }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -n -m \"feat: add search\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add -A && git commit -anm \"feat: add search\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "git commit --no-verify / -n skips the project's pre-commit and commit-msg hooks, and passed (exit 0). -n counts inside a short-option cluster."
+}

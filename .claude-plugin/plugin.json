@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "agent-code-kit",
+  "description": "Discipline kit that turns Claude Code from eager intern to staff engineer. Hooks, skills, and CLAUDE.md rules for Plan → Confirm → Implement → Verify.",
+  "version": "1.22.4",
+  "author": {
+    "name": "lucasfelipe24",
+    "url": "https://github.com/lucasfelipe24"
+  },
+  "repository": "https://github.com/lucasfelipe24/agent-code-kit",
+  "homepage": "https://github.com/lucasfelipe24/agent-code-kit#readme",
+  "license": "MIT"
+}

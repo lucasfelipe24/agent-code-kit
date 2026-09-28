@@ -1,0 +1,56 @@
+{
+  "name": "s116-protect-changes-blocks-package-manager-adds",
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "pnpm add zod" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "yarn add react" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "bun add hono" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "uv add httpx" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "poetry add requests" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cargo add serde --features derive" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "go get github.com/pkg/errors" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "dotnet add src/App/App.csproj package Serilog" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "composer require guzzlehttp/guzzle" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "bundle add rails" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "Every package manager's add-a-dependency command changes the manifest without an Edit; all of them passed (exit 0)."
+}

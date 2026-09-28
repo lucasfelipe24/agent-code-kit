@@ -1,0 +1,7 @@
+{
+  "name": "s105-conventional-commit-ignores-quoted-mention",
+  "hook": ".claude/hooks/conventional-commit.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "echo 'git commit -m \"oops\"' >> notes.txt" } },
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "False positive: the whole command string was matched, so text that only mentions a commit was blocked (exit 2). Only a git that is a command word counts."
+}

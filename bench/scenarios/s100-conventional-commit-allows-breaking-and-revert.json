@@ -1,0 +1,21 @@
+{
+  "name": "s100-conventional-commit-allows-breaking-and-revert",
+  "steps": [
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -m \"feat!: drop Node 16 support\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -m \"feat(api)!: remove the v1 routes\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/conventional-commit.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -m \"revert: undo the search endpoint\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Conventional Commits mark a breaking change with ! before the colon (with or without a scope) and have a revert type. The hook rejected all three (exit 2)."
+}

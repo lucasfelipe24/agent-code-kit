@@ -1,0 +1,23 @@
+{
+  "name": "s124-protect-files-blocks-commit-a-tracked-env",
+  "setup_files": {
+    ".env": "API_KEY=kitbench-not-a-real-key\n",
+    "src/app.ts": "export const x = 1;\n"
+  },
+  "setup_commands": [
+    "git init -q . && git add .env src/app.ts && git -c user.name=kitbench -c user.email=kitbench@example.invalid -c commit.gpgsign=false commit -q -m init && printf 'API_KEY=another-fake-key\\n' > .env && printf 'export const x = 2;\\n' > src/app.ts"
+  ],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -am \"chore: bump\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": [".env"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add src/app.ts && git commit -m \"chore: bump\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "git commit -a stages every modified tracked file, a tracked .env included, and passed (exit 0). Staging the other file by name stays allowed."
+}

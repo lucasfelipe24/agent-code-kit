@@ -1,0 +1,7 @@
+{
+  "name": "s139-session-start-quiet-with-nothing-to-say",
+  "hook": ".claude/hooks/session-start.sh",
+  "payload": { "session_id": "kitbench-s139" },
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "No CODEBASE_MAP, overlay, lessons, todo or git: below the 3-line noise gate, session-start prints nothing — no empty hookSpecificOutput."
+}

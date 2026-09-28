@@ -1,0 +1,7 @@
+{
+  "name": "s120-protect-files-blocks-git-add-env",
+  "hook": ".claude/hooks/protect-files.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "git add .env && git commit -m \"chore: config\"" } },
+  "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": [".env — Environment file with secrets"] },
+  "notes": "The hook only watched edits, so `git add .env` staged the secrets file (exit 0). A git add path is checked against the same protected-file rules."
+}

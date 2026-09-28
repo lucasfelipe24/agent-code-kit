@@ -1,0 +1,192 @@
+# CLAUDE.md
+
+## Session Boot (Tiered)
+At the start of every session, load context in tiers — not everything at once.
+
+> _Partially enforced via_ `.claude/hooks/session-start.sh` _— it auto-injects pointers to Tier 1 files, the top rules, the active task, and the current branch. You still need to_ Read _the files themselves._
+
+**Tier 1 — Always (project awareness):**
+1. Read `CODEBASE_MAP.md`
+2. Read `CLAUDE.project.md` if it exists
+
+**Tier 2 — If continuing work (active task context):**
+3. Read the latest `tasks/handoff-*.md` — only if one exists (indicates interrupted session)
+4. Read `tasks/todo.md` — only if active tasks exist
+
+**Tier 3 — On demand (load when relevant):**
+5. `tasks/lessons/_index.md` — read the `## Top Rules` section (first 15 lines). Read individual lesson files in `tasks/lessons/` only when making decisions that could repeat past mistakes.
+6. `tasks/decisions.md` — read only when facing architectural choices or protected changes.
+
+Restate the current task in 1–2 sentences before doing anything. Never start coding before Tier 1 is loaded.
+
+---
+
+## After Compaction
+Context compaction can happen mid-session. When you detect a compaction (conversation summary, loss of earlier details):
+1. Re-read `tasks/todo.md` — restore awareness of the current task plan
+2. Re-read the specific files you were actively editing
+3. Re-read any contract file (`tasks/*_CONTRACT.md`) if one was active
+4. Re-read `tasks/lessons/_index.md` → `## Top Rules` section only
+5. Re-read `.hook-state/session-journal.md` if it exists — pre-compaction findings the agent intentionally journaled with the `/note` skill (`finding` / `decision` / `summary` lines). Lives only inside the current session; folded to handoff at session end.
+6. Do NOT continue coding until you've re-established context
+
+This is the single most important rule for long sessions.
+
+> _Partially enforced via_ `.claude/hooks/session-start.sh` _— it fires again after a compaction (_`source=compact`_) and re-injects the active task, top rules, any active contract, and the session journal, without resetting session state._ `SessionStart(compact)` _is the only compaction-time event whose context reaches the model. You still need to re-read the specific files you were actively editing — the hook can't know which those are._
+
+---
+
+## Plan First
+For any task touching 3+ files, architectural decisions, new dependencies, or workflow changes:
+- Before researching or planning, restate the request as a **verifiable goal** (see `agent_docs/workflow.md → Goal-Driven Task Reframing`). "Fix the bug" → "Write a test that reproduces it, then make it pass."
+- Write a plan to `tasks/todo.md` using the template in `agent_docs/workflow.md`
+- For in-session ideation, use Claude Code's built-in **Plan Mode** (`Shift+Tab` to toggle) — it stages reasoning and proposed edits without applying them until you exit the mode. Use this alongside `tasks/todo.md` for the plan-of-record.
+- Do not implement until the plan is confirmed
+
+If something goes sideways mid-task: STOP, re-read the original goal, re-plan.
+
+---
+
+## Model Selection
+Match the model to the phase, not the project. Two roles:
+
+- **Planner** — heavy reasoning, architecture decisions, debug. Use the most capable model available. Reach for it when authoring `tasks/todo.md`, drafting ADRs in `tasks/decisions.md`, running `/deepening-review` / `/interface-design`, and any task where reasoning quality matters more than throughput. _(Currently: Opus.)_
+- **Implementer** — file edits, test writing, routine verification. Use the fastest workhorse model — the Implement phase of the lifecycle, running the verification gate, and most edits. _(Currently: Sonnet.)_
+
+Default to Implementer. Switch to Planner for the Plan phase of any non-trivial task, then back. Long Planner sessions waste budget; long Implementer sessions miss architectural mistakes. Names of specific models age fast; the role mapping does not.
+
+---
+
+## Model vs Code
+The model is for **judgment** tasks: classify, draft, summarize, extract, explain, decide between options that lack a deterministic answer. Everything **deterministic** belongs in code, not in a prompt:
+
+- Routing on status codes / branching on flags
+- Retries on transient errors
+- Format conversions with known input/output shapes (dates, slugs, JSON ↔ YAML)
+- Hash, encode, parse, validate against a schema
+- Lookups in a fixed table
+
+Asking the model to do deterministic work burns tokens _and_ introduces non-determinism into a path that has a correct answer. If a `switch`, a regex, or a config file can answer it, let it. The model orchestrates; deterministic code executes.
+
+---
+
+## Scope Discipline
+- Touch ONLY files directly required by the task
+- Never refactor opportunistically
+- **Match existing style** in any file you edit — quote style, indentation, naming convention, async/promise patterns — even if you'd write it differently from scratch. Style drift inside a touched file is an unrelated change. See `agent_docs/conventions.md → Match Existing Style`.
+- **Surface style conflicts, don't blend.** If a file or its neighbours contain two valid styles for the same thing (two error-handling patterns, two date libraries, two casing conventions), pick one and _ask_ — do not interpolate. Blending doubles the bug surface and hides intent from reviewers.
+- Log unrelated issues under `tasks/todo.md → ## Not Now`
+- State every assumption explicitly before acting on it
+- If 2+ valid approaches exist with real tradeoffs: present them, don't decide silently
+- **Running autonomously (auto mode / `/loop`): escalate, don't stall and don't silently guess.** At the hard judgment points a hook can't catch — irreversible ops outside the guardrails, ambiguous requirements, scope growth, N failed tries — stop and ask. See `agent_docs/auto-mode.md → When to stop and ask`.
+
+---
+
+## Protected Changes (Approval Required)
+Stop and request approval before:
+- New dependencies
+- Database schema changes
+- API contract changes
+- Auth / permission logic
+- Build system or core architecture changes
+
+Provide at least 2 approaches with tradeoffs. Do not proceed without confirmation.
+After approval, record the decision in `tasks/decisions.md` using the ADR template.
+
+> _Enforced via_ `.claude/hooks/protect-changes.sh` _— edits to dependency manifests, migrations, and auth paths return exit 2 unless_ `CLAUDE_APPROVED=1` _is set, and so do package-manager commands that add a dependency (_`npm install <pkg>`_,_ `pnpm add`_,_ `cargo add`_,_ `go get`_, …). Build configs hard-block only under the strict profile (_`CCK_PROTECT_BUILD_CONFIGS=1`_); otherwise they emit a non-blocking heads-up. Record the rationale in_ `tasks/decisions.md` _before bypassing._
+
+---
+
+## Verification (Mandatory Order)
+Every task must pass before marking complete:
+1. Typecheck
+2. Lint
+3. Tests
+4. Smoke test (verify real behavior — call endpoint, open page, run CLI)
+5. **Quantify silent failures.** If the task processes N items, report `(processed / failed / skipped) with reasons` — never report "complete" while a subset was silently skipped. A green-looking task with 14% silently-dropped records is the worst failure mode, because the surface looks correct.
+
+Ask yourself: _"Would a staff engineer approve this?"_
+
+> _Enforced via_ `.claude/hooks/quality-gate.sh` _(runs after every Edit/Write and records a result per file) and_ `.claude/hooks/stop-gate.sh` _(blocks completion while any edited file's check failed, timed out, errored, or went stale). A file no check covers is reported as NOT verified — it never counts as passed, so verify it another way. Bypass with_ `SKIP_QUALITY_GATE=1` _only when the failure is unrelated to your change (broken infra, intentional WIP). Smoke testing is still a manual step — the hook can't simulate user behavior._
+>
+> _Declare the project's canonical commands once in_ `.claude/commands.json` _(copy_ `.claude/commands.json.example`_): fast checks_ `typecheck` _and_ `lint` _(the quality gate runs one per edit —_ `typecheck` _for TypeScript/C#,_ `lint` _for the rest), full checks_ `test`_,_ `build` _and_ `smoke` _(for_ `/ship` _and the qa-reviewer — never per edit), and an optional_ `timeout` _in seconds. An absent key → auto-detection; a key set to_ `""` _→ that check is off (for TypeScript/C# the gate then falls back to_ `lint`_, or to auto-detection if_ `lint` _is absent), and an edit whose checks are all off is reported as skipped — NOT verified, never passed; an invalid or mistyped file is a config error that blocks, not a silent fallback._
+
+---
+
+## Self-Improvement Loop
+- After ANY correction from the user: add a lesson under `tasks/lessons/` using `tasks/lessons/_TEMPLATE.md` (file name: `<YYYY-MM-DD>-<slug>.md`)
+- Format: frontmatter + Issue → Root Cause → Rule (see `tasks/lessons/_TEMPLATE.md`)
+- Tag the lesson's domain via `applies_to: [topic1, topic2]`. **Suggested canonical tags** (extend per project as needed): `scope-discipline`, `plan-first`, `verification`, `tooling`, `dependencies`, `auth`, `migrations`, `testing`, `hooks`, `subagents`, `deploy`, `context-hygiene`, `model-vs-code`. These tags power both `_index.md → Active Rules By Topic` and the resurface flow below.
+- Promote critical, recurring rules to `tasks/lessons/_index.md` → `## Top Rules` (set `top_rule: true` in the lesson's frontmatter)
+- Review `tasks/lessons/_index.md` at every session start
+- **Recall dormant lessons on demand.** Archived or superseded lessons are not auto-loaded. When a task touches an area a prior session may have covered, run `/lesson-resurface "<task summary>"` — the skill returns matching lesson _paths_ (with `applies_to` and `title`), never the bodies. The agent decides whether to `Read` each. Pairs with the Goal-Driven Reframing step in `agent_docs/workflow.md`.
+
+---
+
+## Core Principles
+- **Simplicity First**: smallest effective change, minimal impact
+- **No Laziness**: find root causes, no temporary patches
+- **Deterministic**: Plan → Implement → Verify → Review, every time
+
+---
+
+## Design System
+If `DESIGN.md` exists, read it before any UI work. Treat it as the design source of truth — compare implementation against it during design reviews and UI generation.
+
+---
+
+## Knowledge Wiki
+If `WIKI.md` exists, read it before knowledge work. Follow its ingest, query, and lint workflows when working with the wiki vault. Never modify files in `raw-sources/` — they are immutable. Always update `wiki/index.md` and append to `wiki/log.md` after any wiki operation.
+
+---
+
+## HTML Artifacts
+If `ARTIFACTS.md` exists, read it before producing any spec, plan, report, PR writeup, design prototype, or custom editor. Default to HTML output (not markdown) for those use cases — store under `artifacts/`, mirror tokens from `artifacts/design-system.html`, and append a row to `artifacts/index.html` after creating any artifact. Markdown stays for `tasks/` and other hand-edited files.
+
+---
+
+## Harness Docs
+If `docs/ARCHITECTURE.md` exists, the project uses the **harness pattern**: CLAUDE.md stays thin and the structured knowledge lives in `docs/`. Do not load the whole tree at session start — read on demand based on the task:
+
+- `docs/ARCHITECTURE.md` — read before non-trivial work that touches system boundaries, data flow, or new modules
+- `docs/DESIGN.md` — read before UI work (project-specific; supplements the top-level `DESIGN.md`)
+- `docs/PLANS.md` + `docs/exec-plans/active/` — read when scoping or prioritizing
+- `docs/QUALITY_SCORE.md` — auto-updated by `/quality-audit`; read to understand current code-quality posture
+- `docs/RELIABILITY.md` — read for SLO / on-call / incident context
+- `docs/design-docs/core-beliefs.md` — read before architectural choices (these are durable system opinions)
+- `docs/references/<package>-llms.txt` — read when working with a specific third-party library; the `/references-sync` skill populates these
+- `docs/generated/` — auto-produced; never edit by hand
+
+Scaffold with `/harness-init` (does not overwrite existing files).
+
+---
+
+## Product Context
+If `agent_docs/project/mission.md` exists, read it for product context before feature work.
+If `agent_docs/project/tech-stack.md` exists, read it before technology choices.
+If `agent_docs/project/roadmap.md` exists, read it before scoping or prioritization discussions.
+
+---
+
+## Agent Docs
+Read only what's relevant to the current task:
+- Full workflow & plan template → `agent_docs/workflow.md`
+- Debugging protocol → `agent_docs/debugging.md`
+- Subagent strategy → `agent_docs/subagents.md`
+- Worktree isolation (parallel file-mutating agents) → `agent_docs/worktrees.md`
+- Code conventions → `agent_docs/conventions.md`
+- Testing guide → `agent_docs/testing.md`
+- Hooks guide → `agent_docs/hooks.md`
+- Auto mode (safe autonomy) → `agent_docs/auto-mode.md`
+- Skills guide → `agent_docs/skills.md`
+- Task contracts (completion criteria) → `agent_docs/contracts.md`
+- Prompting & bias awareness → `agent_docs/prompting.md`
+- Architecture language (vocabulary for `/deepening-review` and `/interface-design`) → `agent_docs/architecture-language.md`
+
+---
+
+## Project Overlay
+If `CLAUDE.project.md` exists, read it after this file. Project-specific rules override kit defaults.
+If `agent_docs/project/` contains docs, load them when relevant to the current task.
+Subdirectory `CLAUDE.md` files (e.g. `src/api/CLAUDE.md`, `tests/CLAUDE.md`) are auto-loaded by Claude Code when the agent enters that directory. Use them for **module-local** rules that the root CLAUDE.md shouldn't carry (e.g. API-specific naming, test-specific patterns). Root CLAUDE.md still loads first; subdirectory files extend, not replace.
+Project hooks in `.claude/hooks/project/` are configured separately in settings and are never modified by kit upgrades.

@@ -1,0 +1,16 @@
+{
+  "name": "s114-block-dangerous-allows-push-dry-run",
+  "steps": [
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git push -n origin feat/search" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/block-dangerous-commands.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git commit -m \"docs: explain when --no-verify is safe\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s111-s113: on git push, -n is --dry-run, not --no-verify; and --no-verify inside a commit message is text, not an option."
+}

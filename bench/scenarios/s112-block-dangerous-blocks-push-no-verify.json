@@ -1,0 +1,7 @@
+{
+  "name": "s112-block-dangerous-blocks-push-no-verify",
+  "hook": ".claude/hooks/block-dangerous-commands.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "git push --no-verify origin feat/search" } },
+  "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["--no-verify"] },
+  "notes": "git push --no-verify skips the pre-push hook, and passed (exit 0)."
+}

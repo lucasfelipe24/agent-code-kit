@@ -1,0 +1,237 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Markdown files
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: |
+            **/*.md
+            !node_modules/**
+          config: .markdownlint.json
+
+  link-check:
+    name: Link Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links in Markdown files
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --no-progress --hidden --exclude-path node_modules './**/*.md'
+          fail: true
+          failIfEmpty: false
+
+  template-validation:
+    name: Template Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate example CODEBASE_MAP files have no broken structure
+        run: |
+          errors=0
+
+          for file in examples/*/CODEBASE_MAP.md; do
+            echo "Checking structure: $file"
+
+            # Check required sections exist
+            for section in "## What" "## Tech Stack" "## Key Commands" "## Directory Structure" "## Critical Files"; do
+              if ! grep -q "$section" "$file"; then
+                echo "  ERROR: Missing section '$section' in $file"
+                errors=$((errors + 1))
+              fi
+            done
+          done
+
+          # The generic template a stackless install falls back to, and this
+          # repo's own map, must both carry the full section set.
+          for file in scaffold/CODEBASE_MAP.md CODEBASE_MAP.md; do
+            echo "Checking structure: $file"
+            for section in "## What" "## Why" "## Tech Stack" "## Key Commands" "## Directory Structure" "## Critical Files" "## Architecture" "## Known Constraints" "## Environment"; do
+              if ! grep -q "$section" "$file"; then
+                echo "  ERROR: Missing section '$section' in $file"
+                errors=$((errors + 1))
+              fi
+            done
+          done
+
+          # Check CLAUDE.md template has required sections
+          echo "Checking structure: CLAUDE.md"
+          for section in "## Session Boot" "## Plan First" "## Scope Discipline" "## Verification" "## Self-Improvement"; do
+            if ! grep -q "$section" "CLAUDE.md"; then
+              echo "  ERROR: Missing section '$section' in CLAUDE.md"
+              errors=$((errors + 1))
+            fi
+          done
+
+          if [ "$errors" -gt 0 ]; then
+            echo ""
+            echo "$errors structural error(s) found."
+            exit 1
+          else
+            echo ""
+            echo "All templates structurally valid."
+          fi
+
+  kitbench:
+    name: KitBench (hook scenarios)
+    # Run on macOS too — the product ships bash + targets macOS, and the hooks
+    # use grep/sed/basename whose BSD vs GNU differences this leg catches.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Run all bench scenarios
+        run: |
+          chmod +x .claude/hooks/*.sh scripts/run-bench.sh
+          ./scripts/run-bench.sh
+
+  install-test:
+    name: Install / Uninstall smoke test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke-test install -> upgrade -> uninstall
+        run: |
+          chmod +x install.sh uninstall.sh scripts/*.sh .claude/hooks/*.sh
+          bash scripts/test-install.sh
+
+  cli-test:
+    name: CLI smoke test (npx entry point)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Smoke-test bin/cli.sh subcommands
+        run: |
+          chmod +x install.sh scripts/*.sh .claude/hooks/*.sh bin/cli.sh
+          bash scripts/test-cli.sh
+
+  manifest-sync:
+    name: Manifest Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check .kit-manifest matches directory tree
+        run: |
+          chmod +x scripts/sync-manifest.sh
+          ./scripts/sync-manifest.sh --check
+
+  scaffold-check:
+    name: Scaffold Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check scaffold/tasks/ is a clean starting point
+        run: |
+          chmod +x scripts/check-scaffold.sh scripts/lesson-graph.sh
+          ./scripts/check-scaffold.sh
+
+  agents-md-sync:
+    name: AGENTS.md Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check AGENTS.md is regenerated from CLAUDE.md
+        run: |
+          chmod +x scripts/gen-agents-md.sh
+          ./scripts/gen-agents-md.sh .
+          if ! git diff --exit-code -- AGENTS.md; then
+            echo "AGENTS.md is stale — run scripts/gen-agents-md.sh and commit." >&2
+            exit 1
+          fi
+
+  strict-settings-sync:
+    name: Strict Settings Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check settings.strict.json = settings.json + strict delta
+        run: |
+          chmod +x scripts/gen-strict-settings.sh
+          ./scripts/gen-strict-settings.sh --check
+
+  skill-validation:
+    name: Skill Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate skill structure (frontmatter + required sections)
+        run: |
+          chmod +x scripts/validate-skills.sh
+          ./scripts/validate-skills.sh
+
+      - name: Assert skill/hook/agent counts match the declared totals
+        run: |
+          chmod +x scripts/check-counts.sh
+          ./scripts/check-counts.sh
+
+  pipefail-grep-guard:
+    name: Pipefail Grep Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No quiet grep on the receiving end of a pipe in pipefail scripts
+        run: |
+          # A quiet grep exits the moment it matches, which can leave the writer
+          # with EPIPE. Under `set -o pipefail` the pipeline then reports failure
+          # even though the pattern DID match, so the match is silently lost.
+          # That flipped wired hooks into phantom "orphan hook" warnings
+          # and made skill section checks flake.
+          # Use a herestring — grep -q PATTERN <<< "$VAR" — or, for a plain
+          # substring test, bash's [[ "$VAR" == *"$NEEDLE"* ]].
+          PATTERN='[^|]\|[[:space:]]*grep[[:space:]]+(-[a-zA-Z]*q[a-zA-Z]*|--quiet)([[:space:]]|$)'
+          violations=0
+          for file in $(git ls-files '*.sh'); do
+            grep -q 'pipefail' "$file" || continue
+            hits=$(grep -nE "$PATTERN" "$file" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+            if [ -n "$hits" ]; then
+              echo "$file:"
+              echo "$hits" | sed 's/^/  /'
+              violations=$((violations + $(echo "$hits" | wc -l)))
+            fi
+          done
+          if [ "$violations" -gt 0 ]; then
+            echo ""
+            echo "$violations pipe(s) into a quiet grep found in pipefail scripts." >&2
+            exit 1
+          fi
+          echo "No quiet grep is fed by a pipe in a pipefail script."

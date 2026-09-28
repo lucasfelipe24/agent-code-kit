@@ -1,0 +1,27 @@
+{
+  "name": "s122-protect-files-blocks-git-add-all-with-env",
+  "setup_files": {
+    ".env": "API_KEY=kitbench-not-a-real-key\n",
+    ".env.example": "API_KEY=\n",
+    "src/app.ts": "export const x = 1;\n"
+  },
+  "setup_commands": ["git init -q ."],
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add -A" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": [".env — Environment file with secrets"], "stderr_not_contains": [".env.example"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add ." } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-files.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git add --all && git commit -m \"feat: init\"" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "git add -A / . / --all staged an untracked, un-ignored .env (exit 0). The hook asks git status --porcelain -uall what would be staged and names the protected files."
+}

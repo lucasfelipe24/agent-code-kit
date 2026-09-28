@@ -1,0 +1,17 @@
+{
+  "name": "s132-unicode-scan-warning-reaches-claude",
+  "hook": ".claude/hooks/unicode-scan.sh",
+  "setup_files": {
+    "src/app.js": "const a = \"x\u200By\";\n"
+  },
+  "payload": { "tool_name": "Edit", "tool_input": { "file_path": "{TMPROOT}/src/app.js" } },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"SECURITY WARNING: Invisible Unicode characters detected in",
+      "Zero Width Space (U+200B) detected"
+    ],
+    "stderr_not_contains": ["Invisible Unicode"]
+  },
+  "notes": "The Glassworm warning went to plain stdout at exit 0 — the debug log for PostToolUse, never Claude. It is now PostToolUse additionalContext JSON on stdout."
+}

@@ -1,0 +1,21 @@
+{
+  "name": "s115-protect-changes-blocks-npm-install-pkg",
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "npm install lodash" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["npm install lodash", "new dependency"] }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "npm i -D vitest" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "cd web && npm add zod" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" }
+    }
+  ],
+  "notes": "The hook only watched Edit/Write, so `npm install lodash` rewrote package.json without approval (exit 0), although CLAUDE.md says new dependencies are enforced."
+}

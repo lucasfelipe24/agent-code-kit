@@ -1,0 +1,21 @@
+{
+  "name": "s135-bash-budget-warning-reaches-claude",
+  "hook": ".claude/hooks/bash-budget.sh",
+  "env": { "BASH_BUDGET_THRESHOLD": "1" },
+  "payload": {
+    "tool_name": "Bash",
+    "tool_input": { "command": "ls -la" },
+    "tool_response": { "stdout": "total 8\ndrwxr-xr-x 2 dev dev 4096 .\n", "stderr": "" }
+  },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[bash-budget] Cumulative Bash output has crossed 1 tokens"
+    ],
+    "stderr_not_contains": ["[bash-budget]"],
+    "state": [
+      { "file": ".hook-state/bash-budget.json", "field": "warned", "equals": true }
+    ]
+  },
+  "notes": "The one-shot budget warning went to stderr at exit 0, which only reaches the debug log — Claude never saw it. It is now PostToolUse additionalContext JSON on stdout."
+}

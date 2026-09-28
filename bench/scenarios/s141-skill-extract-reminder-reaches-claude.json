@@ -1,0 +1,13 @@
+{
+  "name": "s141-skill-extract-reminder-reaches-claude",
+  "hook": ".claude/hooks/skill-extract-reminder.sh",
+  "payload": { "prompt": "Wrap up the task" },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"UserPromptSubmit\",\"additionalContext\":\"If you discovered something non-obvious"
+    ],
+    "stdout_not_contains": ["{\"additionalContext\""]
+  },
+  "notes": "The reminder was a top-level {\"additionalContext\": ...}, which is not in Claude Code's hook output schema. It is now hookSpecificOutput with hookEventName UserPromptSubmit."
+}

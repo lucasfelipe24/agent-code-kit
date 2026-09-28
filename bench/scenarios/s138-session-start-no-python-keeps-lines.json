@@ -1,0 +1,23 @@
+{
+  "name": "s138-session-start-no-python-keeps-lines",
+  "hook": ".claude/hooks/session-start.sh",
+  "setup_files": {
+    "minbin/python3": "#!/bin/sh\necho 'xcode-select: note: No developer tools were found, requesting install.' >&2\nexit 1\n",
+    "CODEBASE_MAP.md": "# CODEBASE_MAP\nPresent so session-start has something to point at.\n",
+    "CLAUDE.project.md": "# CLAUDE.project.md\nPresent so session-start mentions the overlay.\n"
+  },
+  "setup_commands": [
+    "chmod +x minbin/python3 && for t in bash sh awk basename cat date dirname grep head mkdir rm sed tail tr; do p=$(command -v \"$t\") && ln -sf \"$p\" \"minbin/$t\"; done; true"
+  ],
+  "env": { "PATH": "{TMPROOT}/minbin" },
+  "payload": { "session_id": "kitbench-s138" },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"[Auto-injected by session-start.sh]\\n",
+      "Project map: CODEBASE_MAP.md is present."
+    ],
+    "stdout_not_contains": ["\n{"]
+  },
+  "notes": "No usable python3 and no jq: hook_context escapes the context in bash. The JSON stays one valid object and the lines stay lines (\\n escapes), as the old bash fallback kept them."
+}

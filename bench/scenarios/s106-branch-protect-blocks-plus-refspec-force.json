@@ -1,0 +1,21 @@
+{
+  "name": "s106-branch-protect-blocks-plus-refspec-force",
+  "steps": [
+    {
+      "hook": ".claude/hooks/branch-protect.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git push origin +main" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["Force push"] }
+    },
+    {
+      "hook": ".claude/hooks/branch-protect.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git push origin +feat/search" } },
+      "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["Force push"] }
+    },
+    {
+      "hook": ".claude/hooks/branch-protect.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git push --force-with-lease origin feat/search" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "A +<refspec> force-updates that ref, like --force; `git push origin +main` passed (exit 0). --force-with-lease stays allowed."
+}

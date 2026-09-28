@@ -1,0 +1,18 @@
+{
+  "name": "s137-session-start-compact-context-reaches-claude",
+  "hook": ".claude/hooks/session-start.sh",
+  "setup_files": {
+    "tasks/todo.md": "# Todo\n\n## In Progress\n\n### Fix the widget export\n"
+  },
+  "payload": { "source": "compact", "session_id": "kitbench-s137" },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"[Context restored after compaction by session-start.sh]",
+      "Fix the widget export",
+      "Do NOT resume coding until context is re-established."
+    ],
+    "stdout_not_contains": ["{\"additionalContext\""]
+  },
+  "notes": "session-start printed a top-level {\"additionalContext\": ...}, which is not in Claude Code's hook output schema — in a live session the Tier 1 and post-compaction context never reached the model. It is now hookSpecificOutput with hookEventName SessionStart, on the compact path too."
+}

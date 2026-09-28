@@ -1,0 +1,10 @@
+{
+  "name": "s118-protect-changes-pip-install-advises",
+  "hook": ".claude/hooks/protect-changes.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "pip install requests" } },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": ["\"hookEventName\":\"PreToolUse\"", "\"additionalContext\"", "pip install requests", "Protected Change"]
+  },
+  "notes": "pip install <pkg> may be a tool rather than a project dependency, so it doesn't block: it tells Claude through PreToolUse additionalContext on stdout (stderr at exit 0 never reaches the model)."
+}

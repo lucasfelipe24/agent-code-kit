@@ -1,0 +1,8 @@
+{
+  "name": "s98-branch-protect-blocks-push-head-on-main",
+  "hook": ".claude/hooks/branch-protect.sh",
+  "setup_commands": ["git init -q . && git symbolic-ref HEAD refs/heads/main"],
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "git push origin HEAD" } },
+  "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED" },
+  "notes": "`git push <remote> HEAD` on main resolves to main. The reason goes to stderr, the stream Claude Code feeds the agent on exit 2."
+}

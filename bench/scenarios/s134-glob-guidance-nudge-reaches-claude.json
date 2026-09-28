@@ -1,0 +1,24 @@
+{
+  "name": "s134-glob-guidance-nudge-reaches-claude",
+  "steps": [
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "{TMPROOT}/db/migrations/001_init.test.sql" } },
+      "expect": {
+        "exit_code": 0,
+        "stdout_contains": [
+          "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"[glob-guidance] Test file",
+          "[glob-guidance] Migration"
+        ],
+        "stdout_not_contains": ["\n{"],
+        "stderr_not_contains": ["[glob-guidance]"]
+      }
+    },
+    {
+      "hook": ".claude/hooks/glob-guidance.sh",
+      "payload": { "tool_name": "Write", "tool_input": { "file_path": "{TMPROOT}/db/migrations/002_more.test.sql" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "The nudge went to stderr at exit 0, which only reaches the debug log — Claude never saw it. It is now PreToolUse additionalContext JSON on stdout: one object even when a path matches two patterns, and still one-shot per pattern."
+}

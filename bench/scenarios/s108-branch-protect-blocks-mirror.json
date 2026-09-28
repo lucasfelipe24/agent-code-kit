@@ -1,0 +1,7 @@
+{
+  "name": "s108-branch-protect-blocks-mirror",
+  "hook": ".claude/hooks/branch-protect.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "git push --mirror origin" } },
+  "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["--mirror"] },
+  "notes": "--mirror makes every remote ref match the local ones, main/master included, force-updated. It passed (exit 0)."
+}

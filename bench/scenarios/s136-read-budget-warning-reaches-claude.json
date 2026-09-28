@@ -1,0 +1,21 @@
+{
+  "name": "s136-read-budget-warning-reaches-claude",
+  "hook": ".claude/hooks/read-budget.sh",
+  "env": { "READ_BUDGET_THRESHOLD": "1" },
+  "payload": {
+    "tool_name": "Read",
+    "tool_input": { "file_path": "{TMPROOT}/src/big.ts" },
+    "tool_response": { "type": "text", "file": { "content": "export const answer = 42;\n" } }
+  },
+  "expect": {
+    "exit_code": 0,
+    "stdout_contains": [
+      "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"[read-budget] Cumulative file-read output has crossed 1 tokens"
+    ],
+    "stderr_not_contains": ["[read-budget]"],
+    "state": [
+      { "file": ".hook-state/read-budget.json", "field": "warned", "equals": true }
+    ]
+  },
+  "notes": "The one-shot budget warning went to stderr at exit 0, which only reaches the debug log — Claude never saw it. It is now PostToolUse additionalContext JSON on stdout."
+}

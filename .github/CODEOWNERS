@@ -1,0 +1,8 @@
+# Critical kit files — require owner approval for changes
+CLAUDE.md @lucasfelipe24
+WIKI.md @lucasfelipe24
+install.sh @lucasfelipe24
+uninstall.sh @lucasfelipe24
+package.json @lucasfelipe24
+.claude/ @lucasfelipe24
+.github/ @lucasfelipe24

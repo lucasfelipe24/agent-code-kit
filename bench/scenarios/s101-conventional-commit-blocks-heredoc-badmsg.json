@@ -1,0 +1,10 @@
+{
+  "name": "s101-conventional-commit-blocks-heredoc-badmsg",
+  "hook": ".claude/hooks/conventional-commit.sh",
+  "payload": {
+    "tool_name": "Bash",
+    "tool_input": { "command": "git commit -m \"$(cat <<'EOF'\nWIP stuff\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\"" }
+  },
+  "expect": { "exit_code": 2, "stdout_empty": true, "stderr_starts_with": "BLOCKED", "stderr_contains": ["Got:      WIP stuff"] },
+  "notes": "Claude Code writes commit messages as -m \"$(cat <<'EOF' … EOF)\". The hook only read one-line quoted messages, so a heredoc message was never checked (exit 0). The subject is the heredoc's first non-empty line."
+}

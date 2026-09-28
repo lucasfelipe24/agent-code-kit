@@ -1,0 +1,172 @@
+# Subagent Strategy
+
+## When to Use Subagents
+
+Use the `Agent` tool (formerly `Task`) to spawn subagents when:
+
+| Scenario | Agent Type | Why |
+|----------|-----------|-----|
+| Broad codebase search | `Explore` | Searches multiple patterns without polluting main context |
+| Architecture analysis | `Plan` | Designs approach without filling context with exploration |
+| Independent research questions | `general-purpose` | Runs in parallel, returns summary |
+| Running tests/builds | Relevant custom agent | Isolates noisy output |
+
+## When NOT to Use Subagents
+
+- Simple file reads — use `Read` directly
+- Specific grep/glob — use `Grep`/`Glob` directly
+- Tasks requiring sequential decisions based on context
+- When you already know what file to edit
+
+**Rule of thumb:** If it takes < 3 tool calls, do it yourself.
+
+---
+
+## Agent Types
+
+### Explore (read-only)
+- Fast codebase search and navigation
+- Cannot edit files
+- Use for: "find all API endpoints", "how does auth work?", "where is X defined?"
+
+### Plan (read-only)
+- Architecture design and implementation planning
+- Cannot edit files
+- Use for: "design the approach for feature X", "what's the best way to refactor Y?"
+
+### general-purpose (full access)
+- Can read, write, edit, run commands
+- Use for: complex multi-step tasks that need autonomy
+- Heavier than Explore/Plan — use only when editing/execution is needed
+
+---
+
+## Parallelization Patterns
+
+### Independent research (parallel)
+When you need answers to multiple unrelated questions:
+
+```text
+Task 1: "Find all database query patterns in src/repositories/"
+Task 2: "Find all API middleware in src/middleware/"
+Task 3: "Check what testing framework is configured"
+```
+
+Launch all three simultaneously — they don't depend on each other.
+
+### Sequential dependency (serial)
+When each step depends on the previous:
+
+```text
+Step 1: "Find the auth module"          → returns file paths
+Step 2: "Read and analyze auth flow"    → needs Step 1's paths
+Step 3: "Plan auth refactor"            → needs Step 2's analysis
+```
+
+Must run in order.
+
+### Fan-out / fan-in
+Research in parallel, then synthesize:
+
+```text
+Parallel: Explore frontend, Explore backend, Explore shared types
+Then: Plan the full-stack feature using all three results
+```
+
+### Parallel writers (worktree isolation)
+
+When you fan out agents that each **edit files** — e.g. three forks attempting the same feature different ways — run them with `isolation: worktree` so their edits don't collide in one checkout. Each gets a clean branch you review and merge afterward. This is **only** for mutating agents: it branches from `origin/HEAD` and does **not** carry your uncommitted changes, so never put it on a read-only reviewer (it would review the wrong tree). Full semantics and the trap in `agent_docs/worktrees.md`.
+
+---
+
+## Permission Posture — Delegated & Auto Work
+
+A subagent (or an auto-mode / `/loop` turn) routinely ingests untrusted text — a web page, an issue body, a dependency's README — and a prompt-injected instruction buried in that text runs with **your** tools. The safe default for delegated work is **allowlist, not denylist**: enumerate the tools the delegate legitimately needs and treat everything else as denied — rather than trying to remember to deny each new risk.
+
+**Why allowlist-default.** A denylist has a standing gap: the tool nobody remembered to add. A new MCP server, a new mutating command, a fresh `Bash` pattern slips through until someone notices. An allowlist inverts the failure mode — an un-enumerated tool is denied *by construction*, so the gap closes itself. The burden shifts to justifying access, not to enumerating every risk.
+
+**What the kit already enforces — lean on these, don't reinvent:**
+
+| Layer | Delegated-work guarantee |
+|---|---|
+| `mcp-gate.sh` (`PreToolUse` on `mcp__.*`) | **Allowlist-default for MCP.** Blocks any `mcp__<server>__<tool>` whose `<server>` isn't in `.claude/mcp-allowlist.txt` (`exit 2`). A delegate reaches only servers you named. Inert until you create the allowlist — copy `.claude/mcp-allowlist.txt.example` to turn it on. |
+| `permissions.deny` floor + `PreToolUse` deny hooks | `protect-files`, `protect-changes`, `branch-protect`, `block-dangerous-commands` fire **before** the auto-mode classifier and can't be talked out of by an injected instruction — see the precedence table in `agent_docs/auto-mode.md → Why the kit makes auto mode safe`. |
+| Auto-mode classifier | **Subagents are checked too** — at spawn, per-action, and on return; a subagent's own `permissionMode` frontmatter is ignored (`auto-mode.md → Gotchas`). |
+
+**The posture:**
+
+1. **Turn on `mcp-gate.sh` before delegating or looping.** An injected "call `mcp__anything__…`" then dies at the gate unless you allowlisted that server.
+2. **Keep `permissions.allow` narrow** (the kit's already is). Broad rules (`Bash(*)`, wildcard interpreters) are auto-dropped on entering auto mode — don't add them back for a delegate.
+3. **Extend `permissions.deny`** for project-specific "never" commands rather than trusting the delegate to avoid them.
+4. **Treat any tool a delegate doesn't demonstrably need as denied.** Read-only research → `Explore`/`Plan` (can't edit); reserve `general-purpose` (full access) for work that genuinely must write or execute.
+
+This is defense-in-depth for the *delegated* path; interactive, hands-on-keyboard use is unchanged.
+
+---
+
+## Context Management
+
+### Why subagents help with context
+- Each subagent gets a fresh context window
+- Noisy search results don't pollute your main conversation
+- Failed explorations don't waste main context space
+
+### What to include in subagent prompts
+- Be specific about what you need back
+- Include relevant file paths if known
+- Specify whether you want code or just information
+- Tell the agent whether to write code or just research
+
+### What comes back
+- Subagent returns a single summary message
+- The full exploration history is NOT visible to you
+- Ask for specific details in the prompt if you need them
+
+---
+
+## Runtime Handoff (`.hook-state/agent-handoff.md`)
+
+Subagents can't see each other's context — each gets a fresh window and returns only a summary. For a chain where one agent's output feeds the next (plan → implement → review), the kit gives them one shared scratchpad: `.hook-state/agent-handoff.md`.
+
+The contract (baked into all five `.claude/agents/*` definitions):
+
+- **On entry:** Read `.hook-state/agent-handoff.md` if present — the previous agent's ≤5-line summary.
+- **On exit:** **overwrite** it (replace, never append) with your own ≤5-line summary of what you did and what the next agent needs.
+
+It is a *live* scratchpad, not a journal — short by design (~30 lines max). `session-start.sh` clears it at the start of every session; `journal-fold.sh` folds whatever is left into `tasks/handoff-<session-id>.md` at session end, then clears it. For durable cross-session context use `tasks/handoff-*.md`; for mid-session breadcrumbs use `/note` (`.hook-state/session-journal.md`).
+
+### Telemetry (`.hook-state/agent-invocations.jsonl`)
+
+Every `Agent` (formerly `Task`) dispatch is logged for free: `subagent-pre.sh` (PreToolUse on `Task|Agent`) opens a row with `{agent, task, started_at}`; `subagent-post.sh` (PostToolUse on `Task|Agent`) closes it with `finished_at` + `duration_seconds`. `/scorecard` rolls these up per-agent — invocations, completed, still-open (crash/interrupt signal), and median duration — so you can see which sub-agent runs most and where time goes. The hooks never block the call; the log is append-only and gitignored.
+
+---
+
+## Research-Then-Implement Pattern
+
+The most important subagent pattern. Keeps implementation context clean.
+
+```text
+Step 1: Spawn Explore/Plan agent → "Research options for [X]. Compare approaches.
+        Return: chosen approach, key libraries, implementation steps."
+
+Step 2: Agent returns a concise summary (not the full research)
+
+Step 3: You implement using ONLY that summary as context
+```
+
+**Why this works:** The subagent's full exploration history (dead ends, rejected options, irrelevant docs) stays in the subagent's context. Your main context only gets the actionable summary.
+
+**Anti-pattern:** Doing research yourself, accumulating 50 tool calls of exploration, then trying to implement in the same context. By that point, your context is polluted with information about approaches you won't use.
+
+---
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Spawning a subagent for 1 file read | Use `Read` directly |
+| Duplicating research you delegated | Trust the subagent result |
+| Not being specific in the prompt | Tell it exactly what to return |
+| Using `general-purpose` for read-only tasks | Use `Explore` — it's faster |
+| Running dependent tasks in parallel | Check for dependencies first |
+| Spawning subagent for a task you could do in 2 steps | Just do it yourself |

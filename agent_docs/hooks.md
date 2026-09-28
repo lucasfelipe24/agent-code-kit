@@ -1,0 +1,292 @@
+# Hooks Guide
+
+Hooks are shell scripts that run automatically at specific points in Claude Code's workflow. Unlike CLAUDE.md instructions (which are advisory), hooks are **deterministic** — they always execute.
+
+Philosophy: **Use prompts for guidance. Use hooks for behavior that should run every time.** When a rule contains "always", "never", "block", "record", "run", or "verify", it belongs in a hook.
+
+---
+
+## Included Hooks
+
+### SessionStart (runs at session start — and again after each compaction)
+
+SessionStart fires with a `source`: `startup` / `resume` / `clear` for a fresh session, and `compact` mid-session right after a context compaction.
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **session-start** | `.claude/hooks/session-start.sh` | **On a new session** (`startup`/`resume`/`clear`): auto-injects Tier 1 context — confirms CODEBASE_MAP/CLAUDE.project presence, top rules from `tasks/lessons/_index.md`, active task from `tasks/todo.md`, current git branch, and **working-tree status** (modified/untracked counts + branch-ahead distance when dirty, with a "plan check" nudge). Resets the transient per-session state files (quality-gate results are kept — they carry their session — and pruned after 7 days). Silent on clean trees. **After a compaction** (`source=compact`): re-injects the working anchors the summary may have blurred — active task, top rules, any active `tasks/*_CONTRACT.md`, and the session journal — and does **not** reset session state (counters and the session clock must survive the compaction). This is the deterministic half of CLAUDE.md → After Compaction; `SessionStart(compact)` is the only compaction-time event whose `additionalContext` reaches the model (`PreCompact`/`PostCompact` cannot inject context). |
+
+### UserPromptSubmit (runs before the model sees each user prompt)
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **prompt-router** | `.claude/hooks/prompt-router.sh` | Keyword-based context injection. If the prompt mentions auth, billing, migrations, deploy, or dependencies, it injects a one-line reminder for that domain. |
+### PreToolUse (runs BEFORE a tool executes)
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **protect-files** | `.claude/hooks/protect-files.sh` | Blocks edits to `.env`, credentials, private keys, lock files. **Secret protection.** Also runs on `Bash`: blocks a git command that would stage a protected file — `git add <path>` by name, `git add -A` / `.` / `--all` / a directory and `git commit -a` by what `git status --porcelain -uall` says they would stage (an `.env` that `.gitignore` excludes isn't staged, so it doesn't block). Lock files may be staged: they are committed, just never hand-edited. |
+| **protect-changes** | `.claude/hooks/protect-changes.sh` | Blocks edits to dependency manifests, migrations, auth/security paths, and core build configs unless `CLAUDE_APPROVED=1`. **Architectural protection.** Enforces CLAUDE.md → Protected Changes. Also runs on `Bash`: a package-manager command that adds a dependency blocks too (`npm install\|i\|add <pkg>`, `pnpm add`, `yarn add`, `bun add`, `uv add`, `poetry add`, `cargo add`, `go get <module>`, `dotnet add package`, `composer require`, `bundle add`); restoring from a lockfile (`npm install`, `npm ci`, `pnpm install`, `yarn`) and global installs (`-g`) don't. `pip install <pkg>`, and a build-config edit in the standard profile, get a non-blocking note as PreToolUse `additionalContext`. |
+| **branch-protect** | `.claude/hooks/branch-protect.sh` | Blocks pushes that reach `main`/`master` — a refspec whose destination is main/master (`main`, `HEAD:main`, `feat:refs/heads/main`, `:main`), `--mirror`, and `git push` / `git push <remote>` / `git push <remote> HEAD` while on main — and force pushes (`--force`, `-f`, a `+<refspec>`; `--force-with-lease` is allowed). Only the arguments of the `git push` itself count: the command is split into shell commands by `lib/shell-segments.sh`, so `git push -u origin feat/x && gh pr create --base main` is allowed. |
+| **block-dangerous-commands** | `.claude/hooks/block-dangerous-commands.sh` | Blocks `rm -rf /`, `git reset --hard`, `DROP TABLE`, etc., and skipping the project's git hooks: `--no-verify` on any git command (commit, push, merge, rebase, cherry-pick …) and `-n` on `git commit`. `git push -n` is a dry run and stays allowed. |
+| **conventional-commit** | `.claude/hooks/conventional-commit.sh` | Enforces conventional commit format `<type>[(scope)][!]: <description>` (types: feat, fix, refactor, test, docs, chore, perf, ci, build, style, revert) on the subject — the first non-empty line — of a `-m` message (a `-m "$(cat <<'EOF' … EOF)"` heredoc included), a `-F <file>` that exists, or the heredoc fed to `-F -`. `git -c k=v commit` and `git -C dir commit` count; a quoted mention (`echo 'git commit -m "x"'`) doesn't. |
+| **glob-guidance** | `.claude/hooks/glob-guidance.sh` | Matcher `Edit\|Write\|NotebookEdit`. **Non-blocking** path-scoped nudge for cross-cutting file patterns (test files, migrations) that don't map to one directory where a subdir `CLAUDE.md` would suffice. One-shot per pattern per session via `.hook-state/glob-guidance-fired`; emits the nudge as PreToolUse `additionalContext` (JSON on stdout — stderr at exit 0 only reaches the debug log) and always exits 0. Customise the case table in the script. |
+| **mcp-gate** | `.claude/hooks/mcp-gate.sh` | Matcher `mcp__.*`. MCP supply-chain / prompt-injection governance. Blocks (`exit 2`) any `mcp__<server>__<tool>` call whose `<server>` is absent from `.claude/mcp-allowlist.txt`. **Inert until you create that allowlist** — with no file it never blocks, only reminds once per session that MCP results are untrusted input. Copy `.claude/mcp-allowlist.txt.example` to turn enforcement on; audit with `/mcp-audit`. |
+
+### PostToolUse (runs AFTER a tool executes)
+
+| Hook | File | Matcher | What it does |
+|------|------|---------|-------------|
+| **secret-scan** | `.claude/hooks/secret-scan.sh` | `Edit\|Write\|NotebookEdit` | Scans edited files for API keys, tokens, passwords |
+| **unicode-scan** | `.claude/hooks/unicode-scan.sh` | `Edit\|Write\|NotebookEdit` | Detects invisible Unicode (Glassworm vector) |
+| **loop-detect** | `.claude/hooks/loop-detect.sh` | `Edit\|Write\|NotebookEdit` | Warns at 4 edits, blocks at 6 edits to the same file |
+| **quality-gate** | `.claude/hooks/quality-gate.sh` | `Edit\|Write\|NotebookEdit` | Runs a fast typecheck/lint (or `bash -n`; for C#/.NET, `dotnet build` of the nearest project — 120s limit unless `CCK_QUALITY_GATE_TIMEOUT` is set) after Edit/Write and records the result per file in `.hook-state/quality-gate-state.json`, with `.hook-state/last_quality_gate.json` as the summary. Statuses: `passed`, `failed`, `timeout`, `error` (command not found or not executable, invalid `commands.json`), and `skipped` with a reason (no check for the file type, tool not installed) — a skipped code file is reported as NOT verified, never as passed. Docs, config and markup files aren't gated. Does NOT block — `stop-gate.sh` does the blocking based on the persisted result. Failures and unverified files reach Claude as PostToolUse `additionalContext`; stderr from a hook that exits 0 only reaches the debug log. If `.claude/commands.json` declares `typecheck`/`lint`, runs the declared command instead of guessing (single source of truth). A key set to `""` turns that check off (the edit is recorded as `skipped`, NOT verified); `timeout` sets the per-check limit; an unknown key or a non-string command is a config `error`. The check runs in the file's package root (nearest `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml` / `*.csproj` / `*.sln` …, stopping at the git worktree); the result is stored in the project's `.hook-state/` — or, for a file in another git worktree of the same repo, in that worktree's (`lib/roots.sh`). A check that runs past `CCK_QUALITY_GATE_TIMEOUT` (30s) is killed with its whole process group and recorded as `timeout`; what a finished check leaves running is left alone (build servers stay warm), and its output goes to a file, so a leftover can't hold the hook. `commands.json` applies only to files under the project root — a file outside it is auto-detected. Each result carries the payload's `session_id`. Without a usable python3 results go to a plain per-file log, and a `.py` edit with neither ruff nor a working python3 is `skipped`. If a result can't be recorded (unreadable or unwritable state, a full disk), the hook exits 2 — its stderr reaches Claude — and the file blocks stop until a result for it is recorded. |
+| **bash-budget** | `.claude/hooks/bash-budget.sh` | `Bash` | Estimates cumulative Bash output token cost per session (chars / 4). One-shot warning, as PostToolUse `additionalContext`, when `$BASH_BUDGET_THRESHOLD` (default 50000) is first crossed. Does NOT block — observability only. Writes `.hook-state/bash-budget.json`. |
+| **read-budget** | `.claude/hooks/read-budget.sh` | `Read` | Estimates cumulative file-read token cost per session (chars / 4). One-shot warning, as PostToolUse `additionalContext`, when `$READ_BUDGET_THRESHOLD` (default 100000) is first crossed — nudges tiered/on-demand loading. Does NOT block. Writes `.hook-state/read-budget.json`. |
+
+### PostToolUseFailure (runs AFTER a tool call fails)
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **tool-failure-observe** | `.claude/hooks/tool-failure-observe.sh` | Fires when a tool call errors (Bash non-zero exit, failed Edit, …). **Pure observability** — it cannot prevent the failure. Counts failures per session by tool in `.hook-state/tool-failures.json`; `session-end.sh` folds the total (`metrics.tool_failures`) into the scorecard so a thrashing session is visible. Always exits 0. |
+
+### StopFailure (runs when a turn ends on an API error)
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **stop-failure-observe** | `.claude/hooks/stop-failure-observe.sh` | Fires only when a turn ends on an API-level error (rate limit, auth, server) — **not** on a deliberate `stop-gate` block. Its stdout/exit are ignored by Claude Code (notification/logging only), so it just records the API-error count + last message in `.hook-state/stop-failures.json`. The scorecard (`metrics.api_errors`) uses it to tell "died on infra" from "skipped work". |
+
+### Stop (runs when Claude tries to finish a turn)
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **stop-gate** | `.claude/hooks/stop-gate.sh` | Blocks completion (exit 2) while any file edited this session lacks a passing check: failed, timed out, errored, or changed since its check (stale files are re-verified at stop, at most 3 check scopes). Answers for the Stop payload's `session_id` (a record or a stop without one counts everywhere), across every checkout the session touched: the payload's `cwd`, `CLAUDE_PROJECT_DIR`, and worktrees it stored results in (`.hook-state/quality-gate-roots`). Fails closed: a gate state that can't be read (a `python3` that doesn't run included), a `.hook-state` that isn't writable, a result that couldn't be recorded, a scope-wide failure whose files were renamed or deleted, and an error in the hook itself all block. Whether an unreadable state holds this session's records is decided per record — with jq, and without it in bash — so a record written before session scoping, or one whose session is unknown, still counts. Re-verification stops at `CCK_STOP_REVERIFY_BUDGET` (300s). Files no check covers are listed but don't block. Bypass with `SKIP_QUALITY_GATE=1` env var. Enforces CLAUDE.md → Verification (Mandatory Order). |
+| **task-complete-notify** | `.claude/hooks/task-complete-notify.sh` | Desktop notification + sound on macOS/Linux. Runs AFTER stop-gate so failed gates don't trigger the success ping. |
+
+### SessionEnd (runs when the session ends)
+
+| Hook | File | What it does |
+|------|------|-------------|
+| **session-end** | `.claude/hooks/session-end.sh` | Appends a JSON audit line to `reports/session-audit.log` with session id, exit reason, and last quality-gate status. |
+| **journal-fold** | `.claude/hooks/journal-fold.sh` | Consumes `.hook-state/session-journal.md` (populated mid-session by the `/note` skill). If `[finding]` or `[decision]` entries are present, folds them into `tasks/handoff-<session-id>.md`. If only `[summary]` entries, discards. Always removes the journal so the next session starts clean. Silent when no journal exists. |
+
+### Optional (installed but not enabled by default)
+
+These hooks are included in the kit but **not enabled** in the standard profile. They can be slow or conflict with project-specific configs.
+
+| Hook | File | Event | What it does |
+|------|------|-------|-------------|
+| **auto-lint** | `.claude/hooks/auto-lint.sh` | PostToolUse | Runs linter with --fix after file edits (eslint, ruff, gofmt, clippy, rubocop) |
+| **auto-format** | `.claude/hooks/auto-format.sh` | PostToolUse | Runs formatter after file edits (prettier, black, gofmt, rustfmt) |
+| **skill-compliance** | `.claude/hooks/skill-compliance.sh` | PostToolUse | Checks edited files against active skills and surfaces relevant checklists |
+| **skill-extract-reminder** | `.claude/hooks/skill-extract-reminder.sh` | UserPromptSubmit | Reminds to extract reusable skills from session discoveries |
+| **notify-waiting** | `.claude/hooks/notify-waiting.sh` | Notification | Pushes an out-of-terminal ping the moment Claude is **waiting** for you (input or a permission prompt) — so long autonomous runs (`/loop`, auto-mode, `/ship`) don't go dark. Local desktop notification (terminal-notifier / osascript / notify-send), silent if none present. Optional remote push (ntfy / Pushover) is **off by default**, opt-in via env. Strictly advisory — never blocks. Complements `task-complete-notify` (Stop = "done"; this = "waiting"). |
+
+---
+
+## State Files
+
+Several hooks share state through transient files at the project root. Quality-gate results for files in another git worktree of the same repository go to that worktree's own `.hook-state/` instead, so parallel worktrees never block or clear each other (see `agent_docs/worktrees.md`). These are **self-gitignored** (the hook writes a local `.gitignore` inside the directory the first time it creates state). You don't need to add them to your project's root `.gitignore`.
+
+| File | Written by | Read by | Purpose |
+|------|-----------|---------|---------|
+| `.hook-state/quality-gate-state.json` | `quality-gate.sh` | `stop-gate.sh` | Per-file results (`schema_version` 2): `runs[scope]` — latest result of each check scope `{command, kind, status, exit_code, reason, at, duration_s}`; `files[path]` — `{scope, hash, at, sessions}`, or `{status: "skipped", reason}` when no check applies. A file is verified while its scope's latest run passed and its sha256 is unchanged. Each run gets a number (`seq`, `runs[scope].started`) and a snapshot of its scope's file hashes at start (`pending`): a run records nothing once a later run of its scope has started, and a scope-wide pass re-covers only files unchanged since it started. Written under an exclusive lock (`quality-gate-state.json.lock`) through a unique temp file and a rename. A file that can't be parsed blocks stop — it is never read as empty. Kept across sessions and compactions (stop-gate reads only its own session's records); records older than 7 days are pruned at session start. |
+| `.hook-state/last_quality_gate.json` | `quality-gate.sh` | `stop-gate.sh` (fallback), `session-end.sh` | Summary: the latest run `{session_id, exit_code, tool, edited_file, duration_seconds, stderr_tail, last_run_status, reason}` plus the overall verdict — `status` is `failed` / `timeout` / `error` when any file blocks, else `stale`, `passed` or `skipped` — and `blocking_files`, `stale_files`, `unverified_files`. Consulted only when no v2 state exists; `session-start.sh` clears it on a new session when it carries no `session_id` (a pre-v2 summary would otherwise count as every session's and block a fresh session's first stop). |
+| `.hook-state/quality-gate-unrecorded` | `quality-gate.sh` | `stop-gate.sh` | `session<TAB>file<TAB>epoch` per line: files whose gate result could not be written to the state. Each blocks its session's stop until a record for it exists. When not even this can be written, the line goes to `${TMPDIR:-/tmp}/cck-gate-<key of the project>` (`session<TAB>root<TAB>file<TAB>epoch`). |
+| `.hook-state/quality-gate-files.tsv` | `quality-gate.sh` (no usable python3) | `stop-gate.sh` | Plain per-file log, one line per run: `session, file, status, stamp, kind, scope, epoch, detail` (tab-separated, `-` for empty). The latest line per file wins; a file whose stamp (`cksum`, else mtime) changed is re-verified. `v2` lines hand a file over to `quality-gate-state.json`. |
+| `.hook-state/quality-gate-roots` | `quality-gate.sh` | `stop-gate.sh` | In `CLAUDE_PROJECT_DIR`: `session<TAB>root<TAB>epoch` for every other git worktree this session stored a result in, so its stop checks those too. |
+| `.hook-state/bash-budget.json` | `bash-budget.sh` | `session-end.sh` (scorecard) | Cumulative Bash output token estimate for the session: `{schema_version, cumulative_tokens, threshold, warned, since_session_start, by_command_top5}` |
+| `.hook-state/read-budget.json` | `read-budget.sh` | `session-end.sh` (scorecard) | Cumulative file-read token estimate for the session: `{schema_version, cumulative_tokens, threshold, warned, since_session_start, by_file_top5}` |
+| `.hook-state/quality-gate-history.json` | `quality-gate.sh`, `stop-gate.sh` | `session-end.sh`, `/scorecard` | Per-session cumulative quality-gate metrics: `{runs, failures, last_status, last_tool, skip_gate_used}`. `skip_gate_used` is incremented by `stop-gate.sh` when the agent bypasses the gate. |
+| `.hook-state/verification-ledger.json` | `quality-gate.sh` | `stop-gate.sh`, `/verification-status`, `/ship` | Append-only per-task verification evidence: `{schema_version, entries[{at, tool, status, exit_code, file, duration_s, reason?, scope?}], smoke_test, silent_failures, coverage}` (last 50). Edits no check could cover are logged too, as `skipped` with their reason. Auto-gates written by `quality-gate.sh`; manual slots (smoke test, silent-failure tally) filled via `/verification-status`. |
+| `.hook-state/hook-firings.json` | every blocking hook (on `exit 2`) | `session-end.sh`, `/scorecard` | Per-session block counters: `{"protect-files": N, "protect-changes": N, "branch-protect": N, "block-dangerous-commands": N, "mcp-gate": N, "stop-gate": N}`. Reset by `session-start.sh` on a new session. |
+| `.hook-state/glob-guidance-fired` | `glob-guidance.sh` | (self) | Plain text, one pattern-id per line (`tests`, `migrations`, …). One-shot ledger so each cross-cutting nudge fires once per session. Removed by `session-start.sh` on a new session. |
+| `.hook-state/mcp-banner-fired` | `mcp-gate.sh` | (self) | Empty marker; presence means the once-per-session "MCP output is untrusted" reminder has fired. Removed by `session-start.sh` on a new session. |
+| `.hook-state/tool-failures.json` | `tool-failure-observe.sh` | `session-end.sh` (scorecard) | Per-session tool-failure tally: `{schema_version, cumulative, by_tool}`. Reset by `session-start.sh`. |
+| `.hook-state/stop-failures.json` | `stop-failure-observe.sh` | `session-end.sh` (scorecard) | Per-session API-error tally: `{schema_version, count, last_error}`. Reset by `session-start.sh`. |
+| `.hook-state/session-meta.json` | `session-start.sh` | `session-end.sh` | Identity for the in-progress session: `{session_id, started_at, started_at_epoch}`. Used to compute `session_duration_seconds` and the mtime cutoff for `lessons_added` / `decisions_added`. |
+| `reports/session-audit.log` | `session-end.sh` | `/scorecard`, operator review | One JSON line per session. **schema_version 2** records contain a `metrics` object (edits, blocks_fired, quality_gate, lessons_added, decisions_added, bash_token_estimate, compactions_observed, session_duration_seconds). v1 records (just identifiers + `last_quality_gate`) remain parseable. |
+
+The transient `.hook-state/*` counters are reset on every new session (`session-start.sh`) so they reflect only the current session; quality-gate results are not — they are per session already, and pruned after 7 days. The audit log is append-only across sessions — `/scorecard` aggregates over the requested window.
+
+Both directories are created on demand. Delete them anytime — the next hook run re-creates them.
+
+**Persistence note**: results are per file. A failed `.py` stays failed until a check of that file — or of its whole scope, for project-wide checks such as `tsc` — passes; a pass on another file or an edit to a Markdown file doesn't clear it. A file that changes after its check (through Bash, a formatter, codegen) is stale, and `stop-gate.sh` re-verifies it instead of trusting the old pass. A file no check covers is recorded as `skipped` with a reason: reported as NOT verified, never counted as passed, and not blocking. Results carry their session and are kept across sessions and compactions; a stop answers only for its own session's files.
+
+---
+
+## Escape Hatches
+
+Some hooks block actions or completion. When they get in the way (broken test infra, intentional hot-fix, etc.) use these environment variables:
+
+| Variable | Effect |
+|----------|--------|
+| `CLAUDE_APPROVED=1` | `protect-changes.sh` skips its block. Record the rationale in `tasks/decisions.md` (ADR template) — that is the agreed audit trail. |
+| `SKIP_QUALITY_GATE=1` | `stop-gate.sh` allows completion even with a failed gate. **For failures unrelated to your change only** (broken infra, intentional WIP) — not to walk past a red gate your own edit caused; that's gaming the gate (see `agent_docs/auto-mode.md → Don't let the loop game the gate`). Use sparingly; the failure is still recorded in `.hook-state/last_quality_gate.json`. |
+| `CLAUDE_SKIP_QUALITY_GATE=1` | Alias for the above. |
+| `CCK_QUALITY_GATE_TIMEOUT=<seconds>` | Per-check time limit for `quality-gate.sh` (default 30). Past it the check's whole process group is killed and the run is recorded as `timeout`, which `stop-gate.sh` blocks on like a failure. Raise it for a legitimately slow check (a large `tsc`, a cold build). |
+| `CCK_STOP_REVERIFY_BUDGET=<seconds>` | Total time `stop-gate.sh` may spend re-verifying stale files (default 300, well under Claude Code's 600s Stop-hook timeout — a killed hook doesn't block). Stale files not re-verified in time block. |
+| `BASH_BUDGET_THRESHOLD=<n>` | Overrides the default 50000-token threshold used by `bash-budget.sh`. Set to a high number (e.g. 999999999) to suppress the warning entirely; set lower to surface it earlier. |
+| `READ_BUDGET_THRESHOLD=<n>` | Overrides the default 100000-token threshold used by `read-budget.sh` (cumulative file-read cost). Same semantics as `BASH_BUDGET_THRESHOLD`. |
+
+Set per-session (`export CLAUDE_APPROVED=1`) or per-command (`CLAUDE_APPROVED=1 claude ...`). Never put these in committed config — they defeat the purpose.
+
+---
+
+## How It Works
+
+Hooks are configured in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-files.sh" },
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/protect-changes.sh" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+- **matcher**: which tools trigger the hook (regex pattern). Not used for SessionStart/UserPromptSubmit/SessionEnd/Stop.
+- **command**: start it with `"$CLAUDE_PROJECT_DIR"`. A relative path stops resolving once the agent `cd`s into a subdirectory, and a hook that can't be found doesn't block — it is skipped.
+- **exit 0**: allow the action
+- **exit 2**: block the action (PreToolUse only) or block completion (Stop only). Write the reason to **stderr** — on exit 2 that is what the agent is shown; stdout is not. A PostToolUse hook runs after the tool: exit 2 shows its stderr to Claude but can't undo the edit.
+- **stdout**: to put text in Claude's context (SessionStart, UserPromptSubmit, PreToolUse, PostToolUse), print `{"hookSpecificOutput":{"hookEventName":"<event>","additionalContext":"..."}}` and exit 0 — `hook_context <event> "<message>"` in `lib/json-parse.sh` builds it. `hookEventName` must match the event. A top-level `{"additionalContext": "..."}` is not in Claude Code's schema and never reaches the model. For PreToolUse and PostToolUse, plain stdout at exit 0 only reaches the debug log.
+- **stderr**: shown to Claude only on exit 2. At exit 0 it goes to the debug log only — Claude never sees it.
+
+The hook receives tool input as JSON via stdin.
+
+---
+
+## Hook Profiles
+
+The installer supports three profiles (`--profile minimal|standard|strict`). Each profile enables a different set of hooks:
+
+| Hook | minimal | standard | strict |
+|------|:-------:|:--------:|:------:|
+| session-start | ✓ | ✓ | ✓ |
+| prompt-router | | ✓ | ✓ |
+| protect-files | ✓ | ✓ | ✓ |
+| protect-changes | | ✓ | ✓ |
+| branch-protect | ✓ | ✓ | ✓ |
+| block-dangerous-commands | ✓ | ✓ | ✓ |
+| conventional-commit | | ✓ | ✓ |
+| glob-guidance | | ✓ | ✓ |
+| mcp-gate | | ✓ | ✓ |
+| secret-scan | | ✓ | ✓ |
+| unicode-scan | | ✓ | ✓ |
+| loop-detect | | ✓ | ✓ |
+| quality-gate | | ✓ | ✓ |
+| bash-budget | | ✓ | ✓ |
+| read-budget | | ✓ | ✓ |
+| tool-failure-observe | | ✓ | ✓ |
+| stop-failure-observe | | ✓ | ✓ |
+| stop-gate | | ✓ | ✓ |
+| task-complete-notify | | ✓ | ✓ |
+| session-end | | ✓ | ✓ |
+| auto-lint | | | ✓ |
+| auto-format | | | ✓ |
+| skill-compliance | | | ✓ |
+| skill-extract-reminder | | | ✓ |
+| notify-waiting | | | ✓ |
+
+The repository's `.claude/settings.json` represents the **standard** profile. The strict profile is generated by `install.sh` at install time.
+
+---
+
+## Enabling / Disabling Hooks
+
+### Disable a specific hook
+
+Remove or comment out its entry in `.claude/settings.json`.
+
+### Enable optional hooks
+
+To enable auto-lint and auto-format, add to the `PostToolUse` section in `.claude/settings.json`:
+
+```json
+{
+  "matcher": "Edit|Write",
+  "hooks": [
+    { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/auto-lint.sh" },
+    { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/auto-format.sh" }
+  ]
+}
+```
+
+### Enable notify-waiting (out-of-terminal "agent is waiting" ping)
+
+Enabled by default in the **strict** profile. To turn it on elsewhere, add a `Notification` section to `.claude/settings.json`:
+
+```json
+"Notification": [
+  { "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/notify-waiting.sh" } ] }
+]
+```
+
+With no further config it only fires a **local desktop notification** (via `terminal-notifier`/`osascript` on macOS, `notify-send` on Linux) and is silent where none is installed (CI, headless servers). To also get an **out-of-band push** on another device, opt in with env vars — nothing leaves the machine unless one of these is set:
+
+| Variable | Effect |
+|----------|--------|
+| `CCK_NOTIFY_NTFY_URL` | Full [ntfy](https://ntfy.sh) topic URL (e.g. `https://ntfy.sh/my-secret-topic`). The waiting message is POSTed there. |
+| `CCK_NOTIFY_PUSHOVER_TOKEN` + `CCK_NOTIFY_PUSHOVER_USER` | [Pushover](https://pushover.net) app token **and** user key — both required, or the Pushover branch is skipped. |
+| `CCK_NOTIFY_DRY_RUN=1` | Suppresses the real desktop popup and, instead of calling `curl`, prints the remote target(s) to stderr. Use it to verify your config without spamming yourself: `CCK_NOTIFY_DRY_RUN=1 CCK_NOTIFY_NTFY_URL=https://ntfy.sh/t echo '{"message":"test"}' \| .claude/hooks/notify-waiting.sh`. |
+
+The hook is strictly advisory: it always exits 0 and never blocks or mutates tool flow, so a missing binary or an unreachable push endpoint can't stall a run.
+
+### Make secret-scan block instead of warn
+
+Changing `secret-scan.sh`'s `exit 0` to `exit 2` doesn't do it: the hook runs on PostToolUse, after the edit is written, and on exit 2 Claude sees only stderr (the warning goes out on stdout, as `additionalContext`). To refuse a secret before it lands, add a PreToolUse hook under `.claude/hooks/project/` that checks the incoming `tool_input.content` / `new_string` and exits 2 with the reason on stderr.
+
+### Loosen protect-changes for a specific project
+
+Add a project-specific override under `.claude/hooks/project/`. Project hooks are configured separately in settings and are never modified by kit upgrades. Example: a hook that exits 0 for `package.json` if the project owner has pre-approved auto-updates.
+
+---
+
+## Writing Your Own Hooks
+
+### Template
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+INPUT=$(cat)
+HOOK_LIB="$(cd "$(dirname "$0")/lib" 2>/dev/null && pwd)"
+source "$HOOK_LIB/json-parse.sh"
+
+TOOL_NAME=$(parse_json_field "tool_name")
+FILE_PATH=$(parse_json_field "file_path")
+
+# Your logic here
+
+exit 0  # allow (or exit 2 to block in PreToolUse / Stop)
+```
+
+### Output JSON (context for Claude)
+
+To put text in Claude's context without blocking — SessionStart, UserPromptSubmit, PreToolUse or PostToolUse — call `hook_context` from `lib/json-parse.sh` with the event the hook runs on, then exit 0:
+
+```bash
+hook_context SessionStart "$context"
+# {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"..."}}
+```
+
+The text must sit under `hookSpecificOutput` with the matching `hookEventName`: a top-level `{"additionalContext": "..."}` is not in Claude Code's schema and never reaches the model. `hook_context` builds the JSON with `python3` when it runs and escapes it in bash otherwise. Print nothing when there is nothing to say.
+
+### Tips
+
+- Keep hooks fast — they run on every tool call. Quality-gate runs each check under a 30s limit through `lib/run-with-timeout.sh`, which kills the whole process group on timeout (and when the hook is signalled) — use it in any hook that spawns a tool. Probe python3 with `lib/python3.sh` (`python3_usable`), not `command -v`: a stub that exists but can't run must count as absent. It caches a working python3 in `$TMPDIR` (never a broken one), so call it once at the top of a hook.
+- Use `exit 0` for pass, `exit 2` for block
+- Output to stderr reaches Claude only on exit 2; at exit 0 it goes to the debug log only
+- Output to stdout as `hookSpecificOutput.additionalContext` with the matching `hookEventName` (`hook_context` in `lib/json-parse.sh`) is parsed by Claude Code and injected as context — for SessionStart, UserPromptSubmit, PreToolUse and PostToolUse alike
+- For Stop hooks: avoid infinite loops. If you block, make sure the condition can become false (e.g., read a state file, don't re-evaluate the same condition forever).
+- Test hooks manually: `echo '{"tool_name":"Edit","tool_input":{"file_path":".env"}}' | .claude/hooks/your-hook.sh`
+- For hooks that read state, fall back gracefully when the state file doesn't exist (e.g., a fresh checkout).

@@ -1,0 +1,46 @@
+{
+  "name": "s117-protect-changes-allows-restores-and-globals",
+  "steps": [
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "npm install" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "npm ci" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "pnpm install --frozen-lockfile" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "yarn" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "npm install -g typescript" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "pip install -r requirements.txt" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "pip install -e ." } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/protect-changes.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "echo \"run npm install lodash later\"" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s115/s116: restoring from a lockfile, a global (-g) install, installing from a requirements file or the local project, and a mere mention add no project dependency."
+}

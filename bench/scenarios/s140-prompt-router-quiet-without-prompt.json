@@ -1,0 +1,7 @@
+{
+  "name": "s140-prompt-router-quiet-without-prompt",
+  "hook": ".claude/hooks/prompt-router.sh",
+  "payload": {},
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "A payload with no prompt prints nothing and exits 0 — no empty hookSpecificOutput."
+}

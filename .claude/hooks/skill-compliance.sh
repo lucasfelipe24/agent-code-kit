@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+#
+# skill-compliance.sh — PostToolUse hook
+# Reminds Claude to check active skills after file edits
+#
+# This hook scans skill checklists and injects a reminder into Claude's
+# context so it can self-verify compliance with project-specific rules.
+#
+# Optional hook — not enabled by default.
+# Enable in .claude/settings.json under PostToolUse.
+#
+
+set -euo pipefail
+
+INPUT=$(cat)
+HOOK_LIB="$(cd "$(dirname "$0")/lib" 2>/dev/null && pwd)"
+source "$HOOK_LIB/json-parse.sh"
+
+TOOL_NAME=$(parse_json_field "tool_name")
+
+# Only run after file edits
+case "$TOOL_NAME" in
+  Edit|Write|NotebookEdit) ;;
+  *) exit 0 ;;
+esac
+
+FILE_PATH=$(parse_json_field "file_path")
+[ -z "$FILE_PATH" ] && exit 0
+[ ! -f "$FILE_PATH" ] && exit 0
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILLS_DIR="${SCRIPT_DIR%/hooks}/skills"
+# Normalize path
+SKILLS_DIR="$(cd "$SKILLS_DIR" 2>/dev/null && pwd)" || SKILLS_DIR=".claude/skills"
+[ ! -d "$SKILLS_DIR" ] && exit 0
+
+EXT="${FILE_PATH##*.}"
+BASENAME=$(basename "$FILE_PATH")
+
+# Collect matching skill names based on file type
+MATCHING_SKILLS=""
+
+for skill_dir in "$SKILLS_DIR"/*/; do
+  [ -d "$skill_dir" ] || continue
+
+  SKILL_FILE="$skill_dir/SKILL.md"
+  [ -f "$SKILL_FILE" ] || continue
+
+  skill_name=$(basename "$skill_dir")
+
+  # Skip meta-skills
+  case "$skill_name" in
+    skill-extractor|skill-generator) continue ;;
+  esac
+
+  # Check if skill is relevant to this file type
+  # Look for file extensions, framework names, or broad patterns in the skill
+  SKILL_CONTENT=$(cat "$SKILL_FILE")
+
+  RELEVANT=false
+
+  # Match by file extension mentions in the skill
+  case "$EXT" in
+    js|jsx|ts|tsx|mjs|cjs)
+      if grep -qiE 'javascript|typescript|react|next\.?js|node|\.tsx?|\.jsx?' <<< "$SKILL_CONTENT"; then
+        RELEVANT=true
+      fi
+      ;;
+    py)
+      if grep -qiE 'python|django|fastapi|flask|\.py' <<< "$SKILL_CONTENT"; then
+        RELEVANT=true
+      fi
+      ;;
+    go)
+      if grep -qiE 'golang|go\.mod|\.go' <<< "$SKILL_CONTENT"; then
+        RELEVANT=true
+      fi
+      ;;
+    rs)
+      if grep -qiE 'rust|cargo|\.rs' <<< "$SKILL_CONTENT"; then
+        RELEVANT=true
+      fi
+      ;;
+    rb)
+      if grep -qiE 'ruby|rails|\.rb' <<< "$SKILL_CONTENT"; then
+        RELEVANT=true
+      fi
+      ;;
+    sql)
+      if grep -qiE 'sql|database|query|migration' <<< "$SKILL_CONTENT"; then
+        RELEVANT=true
+      fi
+      ;;
+  esac
+
+  # Also match broadly applicable skills (security, error handling, testing)
+  if grep -qiE 'all (files|projects|languages)|any (file|project)' <<< "$SKILL_CONTENT"; then
+    RELEVANT=true
+  fi
+
+  # Match by filename patterns mentioned in the skill
+  if grep -qF "$BASENAME" <<< "$SKILL_CONTENT"; then
+    RELEVANT=true
+  fi
+
+  if [ "$RELEVANT" = true ]; then
+    MATCHING_SKILLS="${MATCHING_SKILLS}${skill_name}, "
+  fi
+done
+
+# If no matching skills, exit silently
+[ -z "$MATCHING_SKILLS" ] && exit 0
+
+# Trim trailing comma
+MATCHING_SKILLS="${MATCHING_SKILLS%, }"
+
+# Collect checklist items from matching skills
+CHECKLIST=""
+for skill_name in $(echo "$MATCHING_SKILLS" | tr ',' '\n' | tr -d ' '); do
+  CHECKLIST_FILE="$SKILLS_DIR/$skill_name/references/checklist.md"
+  if [ -f "$CHECKLIST_FILE" ]; then
+    ITEMS=$(grep -E '^\s*-\s*\[' "$CHECKLIST_FILE" 2>/dev/null | head -5 || echo "")
+    if [ -n "$ITEMS" ]; then
+      CHECKLIST="${CHECKLIST}\n  ${skill_name}:\n${ITEMS}\n"
+    fi
+  fi
+done
+
+# Output reminder as additionalContext (visible to Claude, not blocking)
+echo "SKILL_COMPLIANCE: Edited $BASENAME — relevant skills: $MATCHING_SKILLS"
+if [ -n "$CHECKLIST" ]; then
+  printf '%b\n' "Checklist items to verify:$CHECKLIST"
+fi
+
+exit 0

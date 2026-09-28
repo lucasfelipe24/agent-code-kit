@@ -1,0 +1,8 @@
+{
+  "name": "s119-protect-changes-bash-allows-with-claude-approved",
+  "hook": ".claude/hooks/protect-changes.sh",
+  "env": { "CLAUDE_APPROVED": "1" },
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "npm install lodash" } },
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "The Bash branch honours the same escape hatch as edits (s04): CLAUDE_APPROVED=1 in the hook's environment."
+}

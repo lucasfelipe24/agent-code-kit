@@ -1,0 +1,13 @@
+{
+  "name": "s123-protect-files-allows-git-add-all-when-env-ignored",
+  "setup_files": {
+    ".gitignore": ".env\n",
+    ".env": "API_KEY=kitbench-not-a-real-key\n",
+    "src/app.ts": "export const x = 1;\n"
+  },
+  "setup_commands": ["git init -q ."],
+  "hook": ".claude/hooks/protect-files.sh",
+  "payload": { "tool_name": "Bash", "tool_input": { "command": "git add -A" } },
+  "expect": { "exit_code": 0, "stdout_empty": true },
+  "notes": "Guard for s122: an .env that .gitignore excludes is never staged by git add -A, so the command is allowed."
+}
