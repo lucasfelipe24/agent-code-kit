@@ -1,0 +1,17 @@
+{
+  "name": "s143-branch-protect-allows-tags-and-all-mention",
+  "setup_commands": ["git init -q . && git symbolic-ref HEAD refs/heads/feat/search"],
+  "steps": [
+    {
+      "hook": ".claude/hooks/branch-protect.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git push --tags origin" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    },
+    {
+      "hook": ".claude/hooks/branch-protect.sh",
+      "payload": { "tool_name": "Bash", "tool_input": { "command": "git push -u origin feat/search && echo 'never run git push --all'" } },
+      "expect": { "exit_code": 0, "stdout_empty": true }
+    }
+  ],
+  "notes": "Guard for s142: pushing tags, or a feature branch next to text that only mentions git push --all, is allowed."
+}
