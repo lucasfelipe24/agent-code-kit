@@ -57,7 +57,7 @@ prisma/
 ---
 
 ## Architecture
-Next.js App Router with Server Components by default. Data fetching happens in Server Components or server actions — no client-side `useEffect` for data loading.
+Next.js App Router with Server Components by default. Server Components fetch data; server actions are for mutations — no client-side `useEffect` for data loading.
 
 Key patterns:
 - `app/(dashboard)/layout.tsx` — authenticated layout wrapper, checks session
