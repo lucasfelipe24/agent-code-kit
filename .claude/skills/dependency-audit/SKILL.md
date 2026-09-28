@@ -65,11 +65,11 @@ Check for known vulnerabilities:
 - **Excessive permissions**: dependencies that request unnecessary system access
 
 Recommend running:
-- `npm audit` / `yarn audit` (Node.js)
-- `pip audit` / `safety check` (Python)
-- `go vuln check` (Go)
+- `npm audit` / `yarn npm audit` (Node.js; `yarn audit` on Yarn 1)
+- `pip-audit` / `safety scan` (Python; `safety check` is deprecated since Safety 3)
+- `govulncheck ./...` (Go)
 - `cargo audit` (Rust)
-- `bundle audit` (Ruby)
+- `bundle-audit check` (Ruby)
 
 ### Phase 4: License Compliance
 

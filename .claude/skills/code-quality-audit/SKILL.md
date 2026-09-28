@@ -97,6 +97,7 @@ Scan for these categories of code smells:
 Check for error handling issues:
 
 - **Swallowed errors**: empty catch blocks, catch-and-log-only without re-throw
+- **Log-and-rethrow**: catch blocks that log and re-throw, so one failure is logged at every layer it crosses. Fix for both: let the error propagate and log it once, at the boundary that handles it
 - **Over-catching**: catching base Exception/Error when specific types are appropriate
 - **Missing error handling**: async operations without try/catch, unchecked return values
 - **Inconsistent patterns**: mix of exceptions, error codes, Result types without clear convention

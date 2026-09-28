@@ -165,7 +165,7 @@ Key design principle: CLAUDE.md acts as a **logical directory** — it contains 
 │       ├── testing-audit/         # Test coverage & quality audit
 │       ├── dead-code-audit/       # Unused code detection
 │       ├── refactoring-guide/     # Fowler-based refactoring plans
-│       ├── accessibility-audit/   # WCAG 2.1 AA compliance
+│       ├── accessibility-audit/   # WCAG 2.2 AA compliance
 │       ├── dependency-audit/      # Vulnerability & license checks
 │       ├── mcp-audit/             # MCP server trust audit (reconcile config vs allowlist)
 │       ├── documentation-audit/   # Doc quality & sync audit
