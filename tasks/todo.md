@@ -92,17 +92,19 @@ Phases, one PR each, each starting with a plan approved here:
 4. Stack templates: the few always-loaded lines per stack.
 5. Deterministic checks from the spec, with KitBench scenarios.
 
-### Install / upgrade architecture proposal (awaiting the maintainer's approval)
+### Brownfield install (shaped 2026-09-28 — spec in `tasks/specs/`)
 
-A separate review of init, upgrade, migration, modules and adoption produced a
-phased proposal — analysis only, nothing implemented. Local, gitignored:
-`artifacts/2026-09-28-kit-install-architecture-proposal.html`. Open findings it
-lists include: `VERSION` overwritten at the project root, an existing
-`CLAUDE.md` / `settings.json` never integrated (no hook merge), all-or-nothing
-directories, uninstall of edited `tasks/` / `CLAUDE.md`, a re-init dropping
-`hooks/lib` from the manifest, and runtime discovery of subagents and active
-modules (see the two lessons dated 2026-09-28). Review it, approve or cut the
-phases, then plan here.
+The install / upgrade architecture proposal was validated in an office-hours
+session and cut to a milestone: the kit works in existing projects — rules
+loaded, hooks registered, nothing lost on `init` / `--upgrade` / `uninstall`, no
+kit-internal versioned file at the root, plus adoption. Spec, decisions and
+references: `tasks/specs/2026-09-28-brownfield-install/`.
+
+Four releases, each starting with a plan approved here: R1 fixes in the current
+layout (first: `uninstall` removes the user's own `.claude/` files — N1), R2
+`.claude/kit/` + migration, R3 `CLAUDE.md` managed block, R4 adoption. R2–R4
+are protected changes and need ADRs. The Playbook's `--playbook` module (its
+phase 3) waits for R2, so it's born on `module.conf`.
 
 ---
 
