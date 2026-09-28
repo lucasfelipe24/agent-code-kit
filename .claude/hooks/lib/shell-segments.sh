@@ -126,14 +126,16 @@ sh_seg_command() {
 }
 
 # sh_git_segment IDX — when segment IDX runs git, sets SH_GIT_SUB (the
-# subcommand), SH_GIT_ARGS (the words after it) and SH_GIT_CWD (the directory
-# given with -C, "" if none), skipping git's own options (-c k=v, -C dir,
-# --git-dir …). Returns 1 when the segment doesn't run a git subcommand.
+# subcommand), SH_GIT_ARGS (the words after it), SH_GIT_CWD (the directory
+# given with -C, "" if none) and SH_GIT_CONFIG (the settings given with -c k=v
+# and --config-env k=VAR, as k=v / k=VAR), skipping git's own options (-c k=v,
+# -C dir, --git-dir …). Returns 1 when the segment doesn't run a git subcommand.
 sh_git_segment() {
   sh_seg_command "$1"
   SH_GIT_SUB=""
   SH_GIT_ARGS=()
   SH_GIT_CWD=""
+  SH_GIT_CONFIG=()
   case "${SH_W[0]-}" in
     git|*/git) ;;
     *) return 1 ;;
@@ -150,7 +152,12 @@ sh_git_segment() {
           *) SH_GIT_CWD=${SH_GIT_CWD:+$SH_GIT_CWD/}$w ;;
         esac
         ;;
-      -c|--git-dir|--work-tree|--namespace|--config-env|--super-prefix) k=$((k + 1)) ;;
+      -c|--config-env)
+        k=$((k + 1))
+        SH_GIT_CONFIG+=("${SH_W[$k]-}")
+        ;;
+      --config-env=*) SH_GIT_CONFIG+=("${w#--config-env=}") ;;
+      --git-dir|--work-tree|--namespace|--super-prefix) k=$((k + 1)) ;;
       -*) ;;
       *) break ;;
     esac

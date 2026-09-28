@@ -120,9 +120,11 @@ fi
 
 # Skipping the project's git hooks: --no-verify on any git command (commit, push,
 # merge, rebase, cherry-pick, am …), and -n on git commit, where it means
-# --no-verify. On git push -n is --dry-run, which stays allowed. Checked per
-# command (lib/shell-segments.sh), so a commit message or an echo that mentions
-# --no-verify doesn't match.
+# --no-verify. On git push -n is --dry-run, which stays allowed. Also
+# `git -c core.hooksPath=<dir>` (or --config-env) on a command that runs hooks:
+# it swaps the project's hooks for another directory — /dev/null skips them all.
+# Checked per command (lib/shell-segments.sh), so a commit message or an echo
+# that mentions --no-verify doesn't match.
 case "$COMMAND" in
   *git*)
     shell_segments "$COMMAND"
@@ -146,6 +148,19 @@ case "$COMMAND" in
             fi
           done
         fi
+        case "$SH_GIT_SUB" in
+          commit|push|merge|pull|rebase|cherry-pick|revert|am)
+            for CFG in ${SH_GIT_CONFIG[@]+"${SH_GIT_CONFIG[@]}"}; do
+              # Config keys are case-insensitive (core.hookspath works too).
+              case "$(printf '%s' "${CFG%%=*}" | tr '[:upper:]' '[:lower:]')" in
+                core.hookspath)
+                  BLOCKED=true
+                  REASON="git -c core.hooksPath=… $SH_GIT_SUB replaces the project's git hooks — like --no-verify, it skips them"
+                  ;;
+              esac
+            done
+            ;;
+        esac
       fi
       SEG=$((SEG + 1))
     done
