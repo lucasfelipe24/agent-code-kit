@@ -40,7 +40,7 @@ This is the single most important rule for long sessions.
 - Use the router the project already uses (`app/` or `pages/`) — don't mix routers except as part of an approved migration. For new projects, or new routes when the project hasn't chosen, use App Router (`app/`)
 - In App Router code: Server Components by default. Only add `"use client"` when you need interactivity, hooks, or browser APIs
 - Use `next/image` for images, `next/link` for navigation
-- Data fetching: in App Router, Server Components with `fetch()` or server actions; in Pages Router, `getServerSideProps` / `getStaticProps` — no `useEffect` for data loading
+- Data fetching: in App Router, Server Components fetch data (`fetch()` or direct DB/ORM calls); Server Actions are for mutations, not data fetching; in Pages Router, `getServerSideProps` / `getStaticProps`. Client-side fetching goes through the project's data library (React Query / SWR) — no raw `useEffect` for data loading
 - Environment variables: `NEXT_PUBLIC_` prefix for client-side, plain for server-side
 - API routes go in `app/api/` as route handlers (Pages Router: `pages/api/`)
 
