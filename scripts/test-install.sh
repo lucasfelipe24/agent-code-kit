@@ -570,6 +570,37 @@ for f in tasks/decisions.md tasks/handoff.md tasks/lessons/_index.md tasks/lesso
 done
 [ ! -d "$TTMP/tasks/lessons" ] && pass "removed the emptied tasks/lessons/" || fail "left an empty tasks/lessons/"
 
+# --- S4: an install from before .kit-baseline -------------------------------
+echo "== uninstall with no install record saves before it removes =="
+NTMP="$XTMP/no-record"
+mkdir -p "$NTMP" "$NTMP/elsewhere"
+echo '{"name":"no-record","version":"1.0.0"}' > "$NTMP/package.json"
+( cd "$NTMP" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$NTMP/.install.log" 2>&1 ) \
+  || { fail "install for the no-record check failed"; tail -8 "$NTMP/.install.log"; }
+rm -f "$NTMP/.kit-baseline"
+echo "# the target of a link" > "$NTMP/elsewhere/target.md"
+rm -rf "$NTMP/.claude/skills/debug"
+ln -s ../../elsewhere "$NTMP/.claude/skills/debug"
+( cd "$NTMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$NTMP/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$NTMP/.uninstall.log"; }
+NB=$(find "$NTMP/.kit-backup" -mindepth 1 -maxdepth 1 -type d | head -1)
+[ -n "$NB" ] && pass "a .kit-backup/ stamp exists" || fail "no .kit-backup/ stamp"
+[ -f "$NB/.claude/hooks/quality-gate.sh" ] && pass "a removed kit hook was saved first" || fail "the hook wasn't saved"
+[ -f "$NB/CLAUDE.md" ] && pass "CLAUDE.md was saved first" || fail "CLAUDE.md wasn't saved"
+[ -L "$NB/.claude/skills/debug" ] && pass "a link was saved as a link" || fail "the link wasn't saved as a link"
+[ -f "$NTMP/elsewhere/target.md" ] && pass "the link target is untouched" || fail "the link target was touched"
+[ ! -e "$NTMP/.claude/hooks/quality-gate.sh" ] && pass "the kit hook is gone from the project" || fail "the kit hook is still there"
+# A CLAUDE.md without the kit's Session Boot is the project's.
+NTMP2="$XTMP/no-record-own"
+mkdir -p "$NTMP2"
+echo '{"name":"no-record-own","version":"1.0.0"}' > "$NTMP2/package.json"
+( cd "$NTMP2" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$NTMP2/.install.log" 2>&1 )
+rm -f "$NTMP2/.kit-baseline"
+echo "# the project's own rules" > "$NTMP2/CLAUDE.md"
+( cd "$NTMP2" && bash "$KIT_ROOT/uninstall.sh" --force >"$NTMP2/.uninstall.log" 2>&1 )
+[ -f "$NTMP2/CLAUDE.md" ] && grep -q "own rules" "$NTMP2/CLAUDE.md" && pass "a CLAUDE.md without Session Boot stays" \
+  || fail "a CLAUDE.md without Session Boot was removed"
+
 # --- strict profile: install path is otherwise never exercised ----------------
 echo "== strict profile install =="
 echo '{"name":"fixture-strict","version":"1.0.0"}' > "$STMP/package.json"

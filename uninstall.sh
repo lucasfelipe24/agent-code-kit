@@ -280,7 +280,13 @@ may_remove() {
     unverified) KEPT_UNVERIFIED+=("$1") ;;
     unrecorded) PROJECT_OWN+=("$1") ;;
     *)
-      if ack_prior_install "$DEST"; then return 0; fi
+      # No record: the kit's word (the manifest) is all there is. CLAUDE.md is the
+      # kit's only if it still carries the kit's `## Session Boot`.
+      if ack_prior_install "$DEST"; then
+        if [ "$1" != CLAUDE.md ] || grep -q '^## Session Boot' "$DEST/CLAUDE.md" 2>/dev/null; then
+          return 0
+        fi
+      fi
       PROJECT_OWN+=("$1")
       ;;
   esac
@@ -306,6 +312,13 @@ if [ "$HAVE_MANIFEST" = true ]; then
       fi
     done < <(find "$DEST/$_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
   done
+fi
+
+# An install from before .kit-baseline left no record of what it wrote, so nothing
+# can be checked against one. Whatever goes is moved to .kit-backup/ first.
+NO_RECORD=false
+if [ "$(ack_record_files "$DEST")" -eq 0 ] && ack_prior_install "$DEST"; then
+  NO_RECORD=true
 fi
 
 # Root files
@@ -620,6 +633,11 @@ if [ ${#KEPT_UNVERIFIED[@]} -gt 0 ]; then
   done
 fi
 
+if [ "$NO_RECORD" = true ]; then
+  echo ""
+  warn "No install record (.kit-baseline): the kit's files can't be told from yours by content. Everything listed above is saved to .kit-backup/ before it goes."
+fi
+
 # Check if .claude/ will be empty after removal
 CLAUDE_WILL_BE_EMPTY=false
 if [ -d "$DEST/.claude" ]; then
@@ -724,6 +742,33 @@ fi
 # --- Remove ---
 
 REMOVED=0
+BACKED_UP=0
+
+# With no install record, save every path about to go — a link as a link, never
+# followed — under .kit-backup/<UTC stamp>/ before anything is deleted.
+if [ "$NO_RECORD" = true ]; then
+  _stamp=".kit-backup/$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "$DEST/$_stamp"
+  [ -f "$DEST/.kit-backup/.gitignore" ] || printf '*\n!.gitignore\n' > "$DEST/.kit-backup/.gitignore"
+  for _p in ${FILES_TO_REMOVE[@]+"${FILES_TO_REMOVE[@]}"} ${DIRS_TO_REMOVE[@]+"${DIRS_TO_REMOVE[@]}"} \
+            ${CLAUDE_DIRS_TO_REMOVE[@]+"${CLAUDE_DIRS_TO_REMOVE[@]}"} ${CLAUDE_FILES_TO_REMOVE[@]+"${CLAUDE_FILES_TO_REMOVE[@]}"} \
+            ${BACKSTOP_TO_REMOVE[@]+"${BACKSTOP_TO_REMOVE[@]}"} ${LEFTOVERS_TO_REMOVE[@]+"${LEFTOVERS_TO_REMOVE[@]}"} \
+            ${TASKS_TO_REMOVE[@]+"${TASKS_TO_REMOVE[@]}"}; do
+    # a glob entry (agent_docs/*.md) expands to its files
+    for _src in "$DEST"/${_p%/}; do
+      [ -e "$_src" ] || [ -L "$_src" ] || continue
+      _rel="${_src#"$DEST"/}"
+      mkdir -p "$DEST/$_stamp/$(dirname "$_rel")"
+      if cp -a "$_src" "$DEST/$_stamp/$_rel"; then
+        BACKED_UP=$((BACKED_UP + 1))
+      else
+        echo -e "  ${RED}[error]${NC} could not save $_rel to $_stamp/ — stopping before anything is removed" >&2
+        exit 1
+      fi
+    done
+  done
+  ok "Saved $BACKED_UP path(s) to $_stamp/"
+fi
 
 # Root files
 if [ ${#FILES_TO_REMOVE[@]} -gt 0 ]; then
@@ -850,6 +895,7 @@ _kept=$(( ${#PROJECT_OWN[@]} + ${#KEPT_EDITED[@]} + ${#KEPT_UNVERIFIED[@]} ))
 if [ "$_kept" -gt 0 ]; then
   echo "  Kept $_kept file(s) that are yours or that you changed (listed above)."
 fi
+[ "$NO_RECORD" = true ] && echo "  saved $BACKED_UP path(s) to $_stamp/ before removing them"
 echo "  removed $REMOVED · kept $_kept (edited ${#KEPT_EDITED[@]}, yours ${#PROJECT_OWN[@]}, unverified ${#KEPT_UNVERIFIED[@]})"
 echo ""
 echo "  Note: Your .gitignore was not modified."
