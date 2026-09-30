@@ -88,7 +88,6 @@ echo ""
 
 FILES_TO_REMOVE=()
 DIRS_TO_REMOVE=()
-HAS_USER_DATA=false
 HAS_WIKI_USER_DATA=false
 HAS_ARTIFACTS_USER_DATA=false
 
@@ -353,59 +352,27 @@ if [ -d "$DEST/agent_docs" ] && [ "$HAVE_MANIFEST" = false ]; then
 fi
 [ -d "$DEST/scripts" ] && [ "$HAVE_MANIFEST" = false ] && DIRS_TO_REMOVE+=("scripts/")
 
-# tasks/ — may contain user data
+# tasks/ — the project's plans, lessons and decisions, and sometimes its own
+# code (a task-queue package is called tasks/ too). Never removed as a whole: a
+# file goes only when the record says the kit wrote it, or when it is still
+# byte for byte the kit's scaffold copy (the installer doesn't record scaffold
+# files yet). Anything else stays, listed. Without the kit tree (piped from curl)
+# a scaffold file can't be told from an edit, so it stays.
+TASKS_TO_REMOVE=()
 if [ -d "$DEST/tasks" ]; then
   if [ "$KEEP_TASKS" = true ]; then
     warn "Keeping tasks/ (--keep-tasks)"
   else
-    # Check for user-generated content
-    TASK_FILES=0
-    if [ -n "$KIT_SRC" ]; then
-      # Anything that isn't byte for byte the kit's scaffold is the project's: an
-      # edited plan, index or decisions file, a new lesson, a handoff, a spec.
-      while IFS= read -r _f; do
-        same_as_kit "$_f" "scaffold/${_f#"$DEST"/}" || TASK_FILES=$((TASK_FILES + 1))
-      done < <(find "$DEST/tasks" -type f ! -name .DS_Store)
-    else
-      # Legacy: pre-v? single-file lessons.md (old format) — any presence is user data
-      if [ -f "$DEST/tasks/lessons.md" ]; then
-        TASK_FILES=$((TASK_FILES + 1))
+    while IFS= read -r _f; do
+      _rel="${_f#"$DEST"/}"
+      if [ "$(ack_owner "$DEST" "$_rel")" = kit ] || same_as_kit "$_f" "scaffold/$_rel"; then
+        TASKS_TO_REMOVE+=("$_rel")
+      elif [ -n "$KIT_SRC" ] && [ -f "$KIT_SRC/scaffold/$_rel" ]; then
+        KEPT_EDITED+=("$_rel")
+      else
+        PROJECT_OWN+=("$_rel")
       fi
-      # Current: per-file lessons under tasks/lessons/ — count files beyond the shipped scaffold
-      # (_index.md, _TEMPLATE.md, and the dated example are kit-managed)
-      if [ -d "$DEST/tasks/lessons" ]; then
-        USER_LESSONS=$(find "$DEST/tasks/lessons" -maxdepth 1 -type f -name "*.md" \
-          ! -name "_index.md" ! -name "_TEMPLATE.md" ! -name "2026-04-15-example-tsconfig.md" \
-          2>/dev/null | wc -l | tr -d ' ')
-        if [ "$USER_LESSONS" -gt 0 ]; then
-          TASK_FILES=$((TASK_FILES + USER_LESSONS))
-        fi
-        # Also treat substantially edited _index.md as user data (Top Rules populated)
-        if [ -f "$DEST/tasks/lessons/_index.md" ]; then
-          TOP_RULES=$(awk '/^## Top Rules/{flag=1; next} /^---/{flag=0} flag && /^- /' "$DEST/tasks/lessons/_index.md" 2>/dev/null | wc -l | tr -d ' ')
-          if [ "$TOP_RULES" -gt 0 ]; then
-            TASK_FILES=$((TASK_FILES + 1))
-          fi
-        fi
-      fi
-      if [ -f "$DEST/tasks/decisions.md" ]; then
-        DECISION_LINES=$(grep -c "^### ADR-" "$DEST/tasks/decisions.md" 2>/dev/null || echo "0")
-        if [ "$DECISION_LINES" -gt 1 ]; then
-          TASK_FILES=$((TASK_FILES + 1))
-        fi
-      fi
-      # find is pipefail-safe when no matches (unlike ls glob)
-      HANDOFF_COUNT=$(find "$DEST/tasks" -maxdepth 1 -type f -name "handoff-*.md" 2>/dev/null | wc -l | tr -d ' ')
-      if [ "$HANDOFF_COUNT" -gt 0 ]; then
-        TASK_FILES=$((TASK_FILES + HANDOFF_COUNT))
-      fi
-    fi
-
-    if [ "$TASK_FILES" -gt 0 ]; then
-      HAS_USER_DATA=true
-    fi
-
-    DIRS_TO_REMOVE+=("tasks/")
+    done < <(find "$DEST/tasks" \( -type f -o -type l \) ! -name .DS_Store | LC_ALL=C sort)
   fi
 fi
 
@@ -528,7 +495,8 @@ BACKSTOP_TO_REMOVE=()
 BACKSTOP_DIRS=()
 for _entry in ${KIT_MANIFEST_ENTRIES[@]+"${KIT_MANIFEST_ENTRIES[@]}"}; do
   case "$_entry" in
-    tasks/*)      [ "$KEEP_TASKS" = true ] && continue ;;
+    # decided above, file by file
+    tasks|tasks/*) continue ;;
     # decided above, where each one's own rules apply
     WIKI.md|ARTIFACTS.md|CLAUDE.md|.claude/settings.json|.claude/extensions/README.md) continue ;;
     CODEBASE_MAP.md) map_is_template || continue ;;
@@ -566,7 +534,7 @@ done
 
 # --- Nothing to remove? ---
 
-TOTAL=$(( ${#FILES_TO_REMOVE[@]} + ${#DIRS_TO_REMOVE[@]} + ${#CLAUDE_DIRS_TO_REMOVE[@]} + ${#CLAUDE_FILES_TO_REMOVE[@]} + ${#BACKSTOP_TO_REMOVE[@]} + ${#LEFTOVERS_TO_REMOVE[@]} ))
+TOTAL=$(( ${#FILES_TO_REMOVE[@]} + ${#DIRS_TO_REMOVE[@]} + ${#CLAUDE_DIRS_TO_REMOVE[@]} + ${#CLAUDE_FILES_TO_REMOVE[@]} + ${#BACKSTOP_TO_REMOVE[@]} + ${#LEFTOVERS_TO_REMOVE[@]} + ${#TASKS_TO_REMOVE[@]} ))
 
 if [ "$TOTAL" -eq 0 ]; then
   info "No Agent Code Kit files found in $(pwd)"
@@ -588,9 +556,7 @@ fi
 
 if [ ${#DIRS_TO_REMOVE[@]} -gt 0 ]; then
   for d in "${DIRS_TO_REMOVE[@]}"; do
-    if [ "$d" = "tasks/" ] && [ "$HAS_USER_DATA" = true ]; then
-      echo -e "    ${RED}✕${NC} $d ${YELLOW}(contains your data!)${NC}"
-    elif { [ "$d" = "wiki/" ] || [ "$d" = "raw-sources/" ]; } && [ "$HAS_WIKI_USER_DATA" = true ]; then
+    if { [ "$d" = "wiki/" ] || [ "$d" = "raw-sources/" ]; } && [ "$HAS_WIKI_USER_DATA" = true ]; then
       echo -e "    ${RED}✕${NC} $d ${YELLOW}(contains your data!)${NC}"
     elif [ "$d" = "artifacts/" ] && [ "$HAS_ARTIFACTS_USER_DATA" = true ]; then
       echo -e "    ${RED}✕${NC} $d ${YELLOW}(contains your data!)${NC}"
@@ -620,6 +586,12 @@ fi
 if [ ${#LEFTOVERS_TO_REMOVE[@]} -gt 0 ]; then
   for f in "${LEFTOVERS_TO_REMOVE[@]}"; do
     echo -e "    ${RED}✕${NC} $f ${DIM}(left by an older kit version, unchanged)${NC}"
+  done
+fi
+
+if [ ${#TASKS_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${TASKS_TO_REMOVE[@]}"; do
+    echo -e "    ${RED}✕${NC} $f ${DIM}(kit scaffold, unchanged)${NC}"
   done
 fi
 
@@ -706,13 +678,6 @@ for _f in ${KEPT_EDITED[@]+"${KEPT_EDITED[@]}"}; do
     break
   fi
 done
-
-# Warn about user data
-if [ "$HAS_USER_DATA" = true ]; then
-  warn "tasks/ contains your session data (lessons, decisions, or handoffs)"
-  echo -e "       Use ${CYAN}--keep-tasks${NC} to preserve it"
-  echo ""
-fi
 
 # Warn about wiki user data
 if [ "$HAS_WIKI_USER_DATA" = true ]; then
@@ -837,6 +802,19 @@ if [ ${#LEFTOVERS_TO_REMOVE[@]} -gt 0 ]; then
     ok "Removed $f (older kit version)"
     REMOVED=$((REMOVED + 1))
   done
+fi
+
+# tasks/: the scaffold files go, then whatever directories that emptied.
+if [ ${#TASKS_TO_REMOVE[@]} -gt 0 ]; then
+  for f in "${TASKS_TO_REMOVE[@]}"; do
+    rm -f "$DEST/$f"
+    ok "Removed $f"
+    REMOVED=$((REMOVED + 1))
+  done
+  if [ -d "$DEST/tasks" ]; then
+    find "$DEST/tasks" -name .DS_Store -delete 2>/dev/null || true
+    find "$DEST/tasks" -depth -type d -exec rmdir {} + 2>/dev/null || true
+  fi
 fi
 
 # A directory entry that kept some files goes only as far as it is empty.

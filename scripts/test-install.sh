@@ -538,8 +538,8 @@ else
   fail "uninstall errored"; tail -8 "$UTMP/.uninstall.log"
 fi
 UNINSTALL_LOG=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$UTMP/.uninstall.log")
-[[ "$UNINSTALL_LOG" == *"tasks/ (contains your data!)"* ]] && pass "an edited tasks/todo.md is flagged as your data" \
-  || fail "an edited tasks/todo.md isn't flagged as your data"
+[[ "$UNINSTALL_LOG" == *"✓ tasks/todo.md"* ]] && pass "an edited tasks/todo.md is listed as kept" \
+  || fail "an edited tasks/todo.md isn't listed as kept"
 for f in $OWN_FILES CLAUDE.md CODEBASE_MAP.md package.json scripts/old-kit-script.sh; do
   [ -f "$UTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
 done
@@ -548,6 +548,27 @@ for f in scripts/doctor.sh agent_docs/workflow.md .claude/hooks/quality-gate.sh 
          .claude/settings.json .kit-manifest .kit-baseline; do
   [ ! -e "$UTMP/$f" ] && pass "removed the kit's $f" || fail "left the kit's $f"
 done
+
+# --- F4: tasks/ may be a Python package, a task queue's folder ----------------
+echo "== uninstall never removes tasks/ as a whole =="
+TTMP="$XTMP/tasks-own"
+mkdir -p "$TTMP"
+echo '{"name":"tasks-own","version":"1.0.0"}' > "$TTMP/package.json"
+( cd "$TTMP" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$TTMP/.install.log" 2>&1 ) \
+  || { fail "install for the tasks/ check failed"; tail -8 "$TTMP/.install.log"; }
+echo "# the project's own worker" > "$TTMP/tasks/celery.py"
+mkdir -p "$TTMP/tasks/jobs"
+echo "# the project's own job" > "$TTMP/tasks/jobs/nightly.py"
+echo "- [ ] the project's own task" >> "$TTMP/tasks/todo.md"
+( cd "$TTMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$TTMP/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$TTMP/.uninstall.log"; }
+for f in tasks/celery.py tasks/jobs/nightly.py tasks/todo.md; do
+  [ -f "$TTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
+done
+for f in tasks/decisions.md tasks/handoff.md tasks/lessons/_index.md tasks/lessons/_TEMPLATE.md; do
+  [ ! -e "$TTMP/$f" ] && pass "removed the untouched scaffold $f" || fail "left the untouched scaffold $f"
+done
+[ ! -d "$TTMP/tasks/lessons" ] && pass "removed the emptied tasks/lessons/" || fail "left an empty tasks/lessons/"
 
 # --- strict profile: install path is otherwise never exercised ----------------
 echo "== strict profile install =="
