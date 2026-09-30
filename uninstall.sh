@@ -345,7 +345,23 @@ module_here() {
 }
 
 # Root files
-[ -f "$DEST/VERSION" ] && FILES_TO_REMOVE+=("VERSION")
+if [ -f "$DEST/VERSION" ]; then
+  # Recorded and unchanged: the kit's. Not recorded (before R1 nothing recorded
+  # VERSION): the kit's only if the manifest lists it and it still reads as the
+  # kit's release-please line — a project's own VERSION stays.
+  case "$(ack_owner "$DEST" VERSION)" in
+    kit) FILES_TO_REMOVE+=("VERSION") ;;
+    kit-edited) KEPT_EDITED+=("VERSION") ;;
+    unverified) KEPT_UNVERIFIED+=("VERSION") ;;
+    *)
+      if manifest_covers VERSION && awk 'NR == 1 && /^[0-9]+\.[0-9]+\.[0-9]+ # x-release-please-version[ \t\r]*$/ { f = 1 } END { exit f ? 0 : 1 }' "$DEST/VERSION"; then
+        FILES_TO_REMOVE+=("VERSION")
+      else
+        PROJECT_OWN+=("VERSION")
+      fi
+      ;;
+  esac
+fi
 [ -f "$DEST/.kit-manifest" ] && FILES_TO_REMOVE+=(".kit-manifest")
 [ -f "$DEST/.kit-baseline" ] && FILES_TO_REMOVE+=(".kit-baseline")
 if [ -f "$DEST/CLAUDE.md" ] && may_remove "CLAUDE.md"; then
@@ -535,7 +551,7 @@ for _entry in ${KIT_MANIFEST_ENTRIES[@]+"${KIT_MANIFEST_ENTRIES[@]}"}; do
     # decided above, file by file
     tasks|tasks/*) continue ;;
     # decided above, where each one's own rules apply
-    WIKI.md|ARTIFACTS.md|CLAUDE.md|.claude/settings.json|.claude/extensions/README.md) continue ;;
+    WIKI.md|ARTIFACTS.md|CLAUDE.md|VERSION|.claude/settings.json|.claude/extensions/README.md) continue ;;
     CODEBASE_MAP.md) map_is_template || continue ;;
   esac
   # .kit-new copies an upgrade left next to a kit file go with it.

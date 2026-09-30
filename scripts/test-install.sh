@@ -1330,6 +1330,35 @@ done
 awk -F'\t' '$2 == "tasks/todo.md" { f = 1 } END { exit !f }' "$TK/.kit-baseline" && fail "the record lists the project's todo.md" || pass "the record omits the project's todo.md"
 awk -F'\t' '$2 == "tasks/decisions.md" { f = 1 } END { exit !f }' "$TK/.kit-baseline" && pass "a seeded scaffold file is recorded" || fail "a seeded file isn't recorded"
 
+# --- S8: VERSION is the kit's only when the record or the old manifest says so ---
+echo "== VERSION: a project's own survives init, --upgrade, --diff and uninstall =="
+VP="$XTMP/version-own"; mkdir -p "$VP"
+echo '{"name":"vp","version":"1.0.0"}' > "$VP/package.json"; echo "3.4.0" > "$VP/VERSION"
+kit "$VP" .install.log && pass "init beside a project VERSION ran clean" || fail "init failed"
+[ "$(cat "$VP/VERSION")" = "3.4.0" ] && pass "init left the project's VERSION" || fail "init overwrote VERSION"
+grep -qxF VERSION "$VP/.kit-manifest" && fail "the manifest lists the project's VERSION" || pass "the manifest omits the project's VERSION"
+[[ "$(strip_log "$VP/.install.log")" == *"VERSION is your project"* ]] && pass "init says VERSION is the project's" || fail "no VERSION warning"
+kit "$VP" .up.log --upgrade
+[ "$(cat "$VP/VERSION")" = "3.4.0" ] && pass "--upgrade left the project's VERSION" || fail "--upgrade overwrote VERSION"
+kit "$VP" .diff.log --diff
+[[ "$(strip_log "$VP/.diff.log")" == *"Installed: unknown"* ]] && pass "--diff shows the installed version as unknown" || fail "--diff shows the project's VERSION as the kit's"
+( cd "$VP" && bash "$KIT_ROOT/uninstall.sh" --force >"$VP/.uninstall.log" 2>&1 )
+[ "$(cat "$VP/VERSION" 2>/dev/null)" = "3.4.0" ] && pass "uninstall kept the project's VERSION" || fail "uninstall removed the project's VERSION"
+
+echo "== VERSION: the kit's own is written, recorded and removed =="
+VG="$XTMP/version-kit"; fresh "$VG"
+awk -F'\t' '$2 == "VERSION" { f = 1 } END { exit !f }' "$VG/.kit-baseline" && pass "a greenfield VERSION is recorded" || fail "VERSION isn't recorded"
+( cd "$VG" && bash "$KIT_ROOT/uninstall.sh" --force >"$VG/.uninstall.log" 2>&1 )
+[ ! -e "$VG/VERSION" ] && pass "uninstall removed the kit's VERSION" || fail "uninstall left the kit's VERSION"
+
+echo "== VERSION: an install from before R1 (unrecorded, listed, kit line) is updated =="
+VL="$XTMP/version-legacy"; fresh "$VL"
+grep -v "$(printf '\t')VERSION\$" "$VL/.kit-baseline" > "$VL/.kit-baseline.tmp" && mv "$VL/.kit-baseline.tmp" "$VL/.kit-baseline"
+echo "1.0.0 # x-release-please-version" > "$VL/VERSION"
+kit "$VL" .up.log --upgrade
+cmp -s "$KIT_ROOT/VERSION" "$VL/VERSION" && pass "a pre-R1 VERSION is updated" || fail "a pre-R1 VERSION was left behind"
+awk -F'\t' '$2 == "VERSION" { f = 1 } END { exit !f }' "$VL/.kit-baseline" && pass "and now recorded" || fail "and still unrecorded"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

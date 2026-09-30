@@ -368,7 +368,15 @@ run_diff() {
   command -v python3 >/dev/null 2>&1 || error "--diff needs python3 to compare the planned upgrade with your project"
 
   installed="not installed"; latest="unknown"
-  [ -f "$DEST/VERSION" ] && installed="v$(sed 's/ *#.*//' "$DEST/VERSION" | tr -d '[:space:]')"
+  # Sourced here too: --diff runs before the main flow loads the library.
+  . "$CLONE_DIR/scripts/lib/manifest.sh"
+  if [ -f "$DEST/VERSION" ]; then
+    if version_is_kit; then
+      installed="v$(sed 's/ *#.*//' "$DEST/VERSION" | tr -d '[:space:]')"
+    else
+      installed="unknown (VERSION is your project's)"
+    fi
+  fi
   [ -f "$CLONE_DIR/VERSION" ] && latest="v$(sed 's/ *#.*//' "$CLONE_DIR/VERSION" | tr -d '[:space:]')"
   echo -e "  Installed: ${YELLOW}${installed}${NC}   Kit: ${GREEN}${latest}${NC}"
 
@@ -550,6 +558,19 @@ INSTALL_OURS=false
 prev_manifest_lists() {
   [ -f "$DEST/$MANIFEST_FILE" ] || return 1
   awk -v p="$1" '$0 == p || index(p, $0 "/") == 1 { f = 1 } END { exit f ? 0 : 1 }' "$DEST/$MANIFEST_FILE"
+}
+
+# version_is_kit — is $DEST/VERSION the kit's? Missing: it will be written. Recorded
+# and unchanged: yes; recorded and edited: no. Not recorded (nothing before R1
+# recorded VERSION): the kit's only if the old manifest lists it and it still reads
+# as the kit's own release-please line; a project's VERSION is its own.
+version_is_kit() {
+  case "$(ack_owner "$DEST" VERSION)" in
+    absent|kit) return 0 ;;
+    kit-edited) return 1 ;;
+  esac
+  prev_manifest_lists VERSION || return 1
+  awk 'NR == 1 && /^[0-9]+\.[0-9]+\.[0-9]+ # x-release-please-version[ \t\r]*$/ { f = 1 } END { exit f ? 0 : 1 }' "$DEST/VERSION"
 }
 
 # install_file <src> <rel> [nomanifest] — place one kit file (see above). Sets
@@ -1294,9 +1315,19 @@ ack_prior_install "$DEST" || PRIOR_INSTALL=false
 ack_record_complete "$DEST" && RECORD_WAS_MARKED=true
 INSTALL_WRITING=true
 
-# Copy VERSION file (always, all profiles)
-cp "$CLONE_DIR/VERSION" "$DEST/VERSION"
-manifest_add "VERSION"
+# Copy VERSION file (always, all profiles) — unless the project has its own.
+VERSION_OURS=true
+if [ -f "$DEST/VERSION" ] && ! version_is_kit; then
+  VERSION_OURS=false
+fi
+if [ "$VERSION_OURS" = true ]; then
+  cp "$CLONE_DIR/VERSION" "$DEST/VERSION"
+  baseline_record "$CLONE_DIR/VERSION" "VERSION"
+  manifest_add "VERSION"
+else
+  warn "VERSION is your project's — the kit's version isn't recorded here until the kit folder moves out of the root"
+  if [ "$UPGRADE" = true ]; then YOURS_FILES+=("VERSION"); else INIT_KEPT+=("VERSION"); fi
+fi
 
 # --- Profile: standard and strict get docs, tasks, scripts ---
 if [ "$PROFILE" != "minimal" ]; then
@@ -1775,7 +1806,7 @@ if [ "$GITIGNORE" = true ]; then
     {
       echo ""
       echo "$MARKER"
-      echo "VERSION"
+      [ "$VERSION_OURS" = true ] && echo "VERSION"
       echo ".kit-manifest"
       echo "CLAUDE.md"
       echo "CLAUDE.project.md"
