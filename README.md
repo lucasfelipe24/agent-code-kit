@@ -183,7 +183,7 @@ Everything the kit adds, and what each part is for:
 
 | Hook | Runs | What it does |
 |---|---|---|
-| `protect-files` | Before edits and `git add` | Blocks `.env` files, credentials, private keys and lock files — editing them or staging them |
+| `protect-files` | Before edits and `git add` | Blocks editing `.env` files, credentials, private keys and lock files, and staging any of them except lock files |
 | `protect-changes` | Before edits and shell commands | Blocks dependency manifests, migrations, auth code, CI workflows and dependency installs until you approve |
 | `branch-protect` | Before shell commands | Blocks pushes to `main`/`master` and force pushes |
 | `block-dangerous-commands` | Before shell commands | Blocks `rm -rf /`, `git reset --hard`, `DROP TABLE` and similar |
@@ -261,9 +261,9 @@ your-project/
 | `tasks/handoff-<session>.md` | `journal-fold`, at session end | Where the next session picks up |
 | `tasks/specs/<date>-<name>/` | `/shape-spec` | Spec, decisions and references for a feature that spans sessions |
 | `tasks/*_CONTRACT.md` | You or Claude | A task's completion criteria, checked by `qa-reviewer` |
-| `tasks/reviews/` | `/review-pipeline` | The merged review report |
-| `tasks/pulses/`, `tasks/retros/` | `/pulse`, `/retro` | Periodic reports that build into a timeline |
-| `golden-principles.yaml` | `/constitution` | Your coding principles, which `/quality-audit` checks |
+| `tasks/reviews/` | `/review-pipeline` | The merged review report, when you choose to save it |
+| `tasks/pulses/`, `tasks/retros/` | `/pulse`, `/retro` | Periodic reports that build into a timeline (`/retro` asks before creating its folder) |
+| `.claude/golden-principles.yaml` | `/constitution` | Your coding principles, which `/quality-audit` checks |
 | `docs/` | `/harness-init`, `/quality-audit`, `/references-sync` | Architecture docs, the quality score and local copies of library docs |
 | `.hook-state/` | The hooks | Session state: gate results, the verification ledger, the session log, the `/note` journal, budgets |
 | `.kit-manifest`, `.kit-baseline` | The installer | What the kit installed, so upgrades and uninstall touch only its files |
@@ -334,7 +334,7 @@ Hooks are shell scripts Claude Code runs at fixed points: before a tool call, af
 | `quality-gate` + `stop-gate` | Finishing while the typecheck, lint or syntax check of an edited file is failing |
 | `mcp-gate` | Calls to MCP servers that aren't on your allowlist (off until you create `.claude/mcp-allowlist.txt`) |
 
-The default profile turns on 23 of the 28 hooks. The ones not listed above watch instead of block: they warn about secrets and invisible Unicode in edits, spot edit loops and oversized tool output, re-inject your plan after a context compaction, and keep a session log for `/scorecard`. After install, `agent_docs/hooks.md` describes every hook and how to write your own.
+The default profile turns on 23 of the 28 hooks; the rest watch instead of block, or are opt-in. [All hooks](#all-hooks) describes each one, and after install `agent_docs/hooks.md` shows how to write your own.
 
 The hooks are tested — see [Run tests](#-run-tests).
 
@@ -348,10 +348,10 @@ What runs, and when, without you typing a command:
 | **You send a prompt** | Mention auth, billing, a migration, a deploy or a new dependency, and Claude gets a short reminder of the rules that apply |
 | **Before an edit** | Secrets, lock files and unapproved protected changes are blocked; the first edit to a test or migration file brings up the guidance for that kind of file |
 | **Before a shell command** | Pushes to `main`, destructive commands, dependency installs and commit messages are checked |
-| **After an edit** | The file's typecheck or lint runs and the result is recorded; the edit is scanned for secrets and invisible Unicode; a 4th edit to the same file warns of a loop, a 6th is blocked |
+| **After an edit** | The file's typecheck or lint runs and the result is recorded; the edit is scanned for secrets and invisible Unicode; a file edited 4 times in the last 10 edits gets a loop warning, and a 6th edit is blocked |
 | **Claude tries to finish** | Blocked while any edited file's check is failing, timed out or older than the file |
 | **The context is compacted** | The active task, top lessons, any task contract and your `/note` entries are put back |
-| **The session ends** | A scorecard line is written for `/scorecard`, and your `/note` entries are saved to `tasks/handoff-<session>.md` for the next session |
+| **The session ends** | A scorecard line is written for `/scorecard`, and your `/note` findings and decisions are saved to `tasks/handoff-<session>.md` for the next session |
 
 ## 🧭 Workflows
 
@@ -368,7 +368,7 @@ The skills are built to chain. Some common paths:
 
 `/feature-cycle` runs steps 2–6 in one go and stops at the first failed gate.
 
-**Fix a bug** — `/debug` gathers evidence and finds the root cause before touching code, writes a test that reproduces the bug, then makes it pass.
+**Fix a bug** — `/debug` reproduces the bug and gathers evidence until it finds the root cause, fixes it, then adds a regression test that fails without the fix.
 
 **Review a change** — `/review-pipeline` runs several audits over the diff in parallel and merges their findings into one report. When you want someone to try to break the change, ask for the `devils-advocate` agent.
 

@@ -183,7 +183,7 @@ Tudo o que o kit adiciona, e para que serve cada parte:
 
 | Hook | Roda | O que faz |
 |---|---|---|
-| `protect-files` | Antes de edições e de `git add` | Bloqueia arquivos `.env`, credenciais, chaves privadas e lock files — tanto editá-los quanto adicioná-los ao stage |
+| `protect-files` | Antes de edições e de `git add` | Bloqueia a edição de arquivos `.env`, credenciais, chaves privadas e lock files, e a adição de qualquer um deles ao stage, exceto lock files |
 | `protect-changes` | Antes de edições e de comandos no shell | Bloqueia manifestos de dependências, migrations, código de autenticação, workflows de CI e instalação de dependências até você aprovar |
 | `branch-protect` | Antes de comandos no shell | Bloqueia pushes para `main`/`master` e force pushes |
 | `block-dangerous-commands` | Antes de comandos no shell | Bloqueia `rm -rf /`, `git reset --hard`, `DROP TABLE` e similares |
@@ -261,9 +261,9 @@ seu-projeto/
 | `tasks/handoff-<sessão>.md` | O `journal-fold`, no fim da sessão | De onde a próxima sessão continua |
 | `tasks/specs/<data>-<nome>/` | `/shape-spec` | Spec, decisões e referências de uma feature que dura várias sessões |
 | `tasks/*_CONTRACT.md` | Você ou o Claude | Os critérios de conclusão de uma tarefa, verificados pelo `qa-reviewer` |
-| `tasks/reviews/` | `/review-pipeline` | O relatório de revisão consolidado |
-| `tasks/pulses/`, `tasks/retros/` | `/pulse`, `/retro` | Relatórios periódicos que formam uma linha do tempo |
-| `golden-principles.yaml` | `/constitution` | Os seus princípios de código, que o `/quality-audit` verifica |
+| `tasks/reviews/` | `/review-pipeline` | O relatório de revisão consolidado, quando você escolhe salvá-lo |
+| `tasks/pulses/`, `tasks/retros/` | `/pulse`, `/retro` | Relatórios periódicos que formam uma linha do tempo (o `/retro` pergunta antes de criar a pasta dele) |
+| `.claude/golden-principles.yaml` | `/constitution` | Os seus princípios de código, que o `/quality-audit` verifica |
 | `docs/` | `/harness-init`, `/quality-audit`, `/references-sync` | Docs de arquitetura, o quality score e cópias locais da documentação das bibliotecas |
 | `.hook-state/` | Os hooks | Estado da sessão: resultados dos gates, o registro de verificações, o log da sessão, o journal do `/note`, orçamentos |
 | `.kit-manifest`, `.kit-baseline` | O instalador | O que o kit instalou, para o upgrade e a desinstalação mexerem só nos arquivos dele |
@@ -334,7 +334,7 @@ Hooks são scripts shell que o Claude Code executa em pontos fixos: antes de uma
 | `quality-gate` + `stop-gate` | Encerrar enquanto o typecheck, o lint ou a checagem de sintaxe de um arquivo editado estiver falhando |
 | `mcp-gate` | Chamadas a servidores MCP que não estão na sua allowlist (desligado até você criar `.claude/mcp-allowlist.txt`) |
 
-O perfil padrão liga 23 dos 28 hooks. Os que não aparecem acima observam em vez de bloquear: alertam sobre segredos e Unicode invisível nas edições, detectam loops de edição e saídas de ferramenta grandes demais, reinjetam o seu plano depois de uma compactação de contexto e mantêm um log da sessão para o `/scorecard`. Depois da instalação, `agent_docs/hooks.md` descreve cada hook e como escrever os seus.
+O perfil padrão liga 23 dos 28 hooks; os demais observam em vez de bloquear, ou são opcionais. [Todos os hooks](#todos-os-hooks) descreve cada um, e depois da instalação `agent_docs/hooks.md` mostra como escrever os seus.
 
 Os hooks são testados — veja [Rodar os testes](#-rodar-os-testes).
 
@@ -348,10 +348,10 @@ O que roda, e quando, sem você digitar nenhum comando:
 | **Você envia um prompt** | Se você mencionar autenticação, cobrança, migration, deploy ou uma dependência nova, o Claude recebe um lembrete curto das regras que se aplicam |
 | **Antes de uma edição** | Segredos, lock files e mudanças protegidas não aprovadas são bloqueados; a primeira edição num arquivo de teste ou de migration traz as orientações para esse tipo de arquivo |
 | **Antes de um comando no shell** | Pushes para a `main`, comandos destrutivos, instalação de dependências e mensagens de commit são verificados |
-| **Depois de uma edição** | O typecheck ou o lint do arquivo roda e o resultado é registrado; a edição passa por uma varredura de segredos e Unicode invisível; a 4ª edição no mesmo arquivo gera um alerta de loop, e a 6ª é bloqueada |
+| **Depois de uma edição** | O typecheck ou o lint do arquivo roda e o resultado é registrado; a edição passa por uma varredura de segredos e Unicode invisível; um arquivo editado 4 vezes nas últimas 10 edições gera um alerta de loop, e a 6ª edição é bloqueada |
 | **O Claude tenta encerrar** | Bloqueado enquanto a verificação de algum arquivo editado estiver falhando, tiver estourado o tempo ou for mais antiga que o arquivo |
 | **O contexto é compactado** | A tarefa ativa, as lições principais, o contrato da tarefa (se houver) e as suas entradas do `/note` voltam ao contexto |
-| **A sessão termina** | Uma linha de scorecard é gravada para o `/scorecard`, e as suas entradas do `/note` são salvas em `tasks/handoff-<sessão>.md` para a próxima sessão |
+| **A sessão termina** | Uma linha de scorecard é gravada para o `/scorecard`, e os achados e decisões do seu `/note` são salvos em `tasks/handoff-<sessão>.md` para a próxima sessão |
 
 ## 🧭 Fluxos de trabalho
 
@@ -368,7 +368,7 @@ As skills foram feitas para se encadear. Alguns caminhos comuns:
 
 O `/feature-cycle` roda os passos 2 a 6 de uma vez e para no primeiro gate que falhar.
 
-**Corrigir um bug** — O `/debug` reúne evidências e encontra a causa raiz antes de mexer no código, escreve um teste que reproduz o bug e depois o faz passar.
+**Corrigir um bug** — O `/debug` reproduz o bug e reúne evidências até encontrar a causa raiz, corrige, e depois adiciona um teste de regressão que falha sem a correção.
 
 **Revisar uma mudança** — O `/review-pipeline` roda várias auditorias sobre o diff em paralelo e junta os achados num relatório só. Quando quiser alguém tentando quebrar a mudança, peça o agente `devils-advocate`.
 
