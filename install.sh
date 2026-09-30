@@ -1333,57 +1333,32 @@ if [ "$PROFILE" != "minimal" ]; then
   # template and starter lessons. Never from this repo's own tasks/, which holds
   # the kit's live task board, its 15 ADRs and its real lessons; shipping those
   # hands every new project someone else's project state.
-  if [ ! -d "$DEST/tasks" ]; then
+  # A folder called tasks/ that is the project's own code (a task queue's package)
+  # gets nothing from the board. A kit-shaped one — empty, or holding a scaffold
+  # name (todo.md, decisions.md, handoff.md, lessons/) — is completed file by
+  # file and never overwritten.
+  TASKS_SHAPED=true
+  if [ -d "$DEST/tasks" ] && [ -n "$(ls -A "$DEST/tasks")" ]; then
+    TASKS_SHAPED=false
+    for f in todo.md decisions.md handoff.md lessons; do
+      [ -e "$DEST/tasks/$f" ] && TASKS_SHAPED=true
+    done
+  fi
+  if [ "$TASKS_SHAPED" = false ]; then
+    INIT_KEPT+=("tasks/ (holds your own files, so the task board wasn't installed)")
+    [ "$UPGRADE" = true ] && warn "tasks/ holds your own files — the task board wasn't installed"
+  elif [ ! -d "$DEST/tasks" ]; then
     cp -r "$CLONE_DIR/scaffold/tasks" "$DEST/tasks"
     note_added "$DEST/tasks"
     ok "Created tasks/"
-    for f in "$DEST/tasks/"*.md; do
-      [ -f "$f" ] && manifest_add "tasks/$(basename "$f")"
-    done
-    # Track per-file lessons under tasks/lessons/
-    if [ -d "$DEST/tasks/lessons" ]; then
-      for f in "$DEST/tasks/lessons/"*.md; do
-        [ -f "$f" ] && manifest_add "tasks/lessons/$(basename "$f")"
-      done
-    fi
-  elif [ "$UPGRADE" = true ]; then
-    seed_dir "$CLONE_DIR/scaffold/tasks" "$DEST/tasks" "*.md" "tasks"
+    baseline_record_tree "$CLONE_DIR/scaffold/tasks" "tasks"
+    while IFS= read -r f; do
+      manifest_add "tasks/${f#"$CLONE_DIR"/scaffold/tasks/}"
+    done < <(find "$CLONE_DIR/scaffold/tasks" -type f -name '*.md' | LC_ALL=C sort)
   else
-    warn "Skipped tasks/ (already exists)"
-    for f in "$DEST/tasks/"*.md; do
-      [ -f "$f" ] && manifest_add "tasks/$(basename "$f")"
-    done
-    if [ -d "$DEST/tasks/lessons" ]; then
-      for f in "$DEST/tasks/lessons/"*.md; do
-        [ -f "$f" ] && manifest_add "tasks/lessons/$(basename "$f")"
-      done
-    fi
-  fi
-
-  # tasks/lessons/ — per-file lessons directory (independent of tasks/ creation
-  # so existing installs get the scaffold on --upgrade without overwriting user lessons)
-  if [ ! -d "$DEST/tasks/lessons" ]; then
-    mkdir -p "$DEST/tasks/lessons"
-    for f in "$CLONE_DIR/scaffold/tasks/lessons/"*.md; do
-      [ -f "$f" ] || continue
-      cp "$f" "$DEST/tasks/lessons/$(basename "$f")"
-      note_added "$DEST/tasks/lessons/$(basename "$f")"
-      manifest_add "tasks/lessons/$(basename "$f")"
-    done
-    ok "Created tasks/lessons/ (per-file lessons with frontmatter)"
-  elif [ "$UPGRADE" = true ]; then
-    # scaffold/tasks/lessons/ IS the kit-managed set, so no second allowlist to
-    # drift against it. Never overwrite user lessons.
-    for f in "$CLONE_DIR/scaffold/tasks/lessons/"*.md; do
-      [ -f "$f" ] || continue
-      basename=$(basename "$f")
-      manifest_add "tasks/lessons/$basename"
-      if [ ! -f "$DEST/tasks/lessons/$basename" ]; then
-        cp "$f" "$DEST/tasks/lessons/$basename"
-        note_added "$DEST/tasks/lessons/$basename"
-        ok "Added tasks/lessons/$basename"
-      fi
-    done
+    while IFS= read -r f; do
+      install_file "$f" "tasks/${f#"$CLONE_DIR"/scaffold/tasks/}"
+    done < <(find "$CLONE_DIR/scaffold/tasks" -type f ! -name .DS_Store | LC_ALL=C sort)
   fi
 
   # Legacy detection: old single-file tasks/lessons.md

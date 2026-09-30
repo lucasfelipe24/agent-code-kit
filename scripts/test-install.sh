@@ -1265,6 +1265,26 @@ echo "// mine" >> "$BF/.claude/commands.json.example"
 kit "$BF" .install3.log --profile minimal
 grep -q '// mine' "$BF/.claude/commands.json.example" && pass "an edited .example survives a re-run" || fail "a re-run overwrote an edited .example"
 
+# --- S6: tasks/ that is the project's own, or kit-shaped ----------------------
+echo "== init: a foreign tasks/ is left alone, a kit-shaped one is completed =="
+TF="$XTMP/tasks-foreign"; mkdir -p "$TF/tasks"
+echo '{"name":"tf","version":"1.0.0"}' > "$TF/package.json"; echo "# worker" > "$TF/tasks/celery.py"
+kit "$TF" .install.log && pass "install beside a foreign tasks/ ran clean" || { fail "install failed"; tail -6 "$TF/.install.log"; }
+TF_LS=$(ls -A "$TF/tasks")
+[ "$TF_LS" = "celery.py" ] && pass "a foreign tasks/ got no kit file" || fail "a foreign tasks/ holds: $TF_LS"
+grep -q '^tasks/' "$TF/.kit-manifest" && fail "the manifest lists a foreign tasks/" || pass "the manifest omits a foreign tasks/"
+TF_LOG=$(strip_log "$TF/.install.log")
+[[ "$TF_LOG" == *"tasks/"*"board"* ]] && pass "the log says the task board wasn't installed" || fail "no word about the task board"
+TK="$XTMP/tasks-shaped"; mkdir -p "$TK/tasks"
+echo '{"name":"tk","version":"1.0.0"}' > "$TK/package.json"; echo "- [ ] the project's plan" > "$TK/tasks/todo.md"
+kit "$TK" .install.log && pass "install beside a kit-shaped tasks/ ran clean" || fail "install failed"
+[ "$(cat "$TK/tasks/todo.md")" = "- [ ] the project's plan" ] && pass "the project's todo.md is untouched" || fail "todo.md was changed"
+for f in tasks/decisions.md tasks/handoff.md tasks/lessons/_index.md; do
+  [ -f "$TK/$f" ] && pass "the missing scaffold $f was seeded" || fail "$f wasn't seeded"
+done
+awk -F'\t' '$2 == "tasks/todo.md" { f = 1 } END { exit !f }' "$TK/.kit-baseline" && fail "the record lists the project's todo.md" || pass "the record omits the project's todo.md"
+awk -F'\t' '$2 == "tasks/decisions.md" { f = 1 } END { exit !f }' "$TK/.kit-baseline" && pass "a seeded scaffold file is recorded" || fail "a seeded file isn't recorded"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"
