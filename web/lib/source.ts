@@ -1,7 +1,7 @@
 import { llms, loader } from 'fumadocs-core/source';
 import { defineDocs } from 'fumadocs-mdx/macro';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
-import { docsRoute } from './shared';
+import { docsRoute, withBase, withBaseLinks } from './shared';
 import { i18n } from './i18n';
 
 const docs = defineDocs({
@@ -27,7 +27,8 @@ export const source = loader({
 });
 
 export const docsLlms = llms(source, {
-  renderPage: async (page) => `# ${page.data.title} (${page.url})
+  renderPage: async (page) =>
+    withBaseLinks(`# ${page.data.title} (${withBase(page.url)})
 
-${await page.data.getText('processed')}`,
+${await page.data.getText('processed')}`),
 });

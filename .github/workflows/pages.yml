@@ -78,6 +78,15 @@ jobs:
       - name: Generated pages are reproducible
         run: bash scripts/gen-skill-docs.sh --check
 
+      # lychee reads .txt as plain text and skips relative links, so assert the
+      # llms files' links carry the base path directly.
+      - name: llms files link under the base path
+        run: |
+          if grep -nP '\]\(/(?!/|agent-code-kit/)' web/out/llms.txt web/out/llms-full.txt; then
+            echo "::error::llms link without the /agent-code-kit base path (see withBaseLinks in web/lib/shared.ts)"
+            exit 1
+          fi
+
       # Pages serves the site under /agent-code-kit, so check it mounted there.
       - name: Stage under the base path
         run: mkdir -p _site && cp -r web/out _site/agent-code-kit
@@ -87,7 +96,7 @@ jobs:
         with:
           # --index-files: a link to dir/#frag is checked against dir/index.html
           lycheeVersion: v0.24.2
-          args: --offline --no-progress --include-fragments --index-files index.html --root-dir ${{ github.workspace }}/_site '_site/**/*.html'
+          args: --offline --no-progress --include-fragments --index-files index.html --root-dir ${{ github.workspace }}/_site '_site/**/*.html' '_site/**/content.md'
           fail: true
 
       - uses: actions/upload-pages-artifact@v3
