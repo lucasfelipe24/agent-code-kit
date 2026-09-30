@@ -601,6 +601,20 @@ echo "# the project's own rules" > "$NTMP2/CLAUDE.md"
 [ -f "$NTMP2/CLAUDE.md" ] && grep -q "own rules" "$NTMP2/CLAUDE.md" && pass "a CLAUDE.md without Session Boot stays" \
   || fail "a CLAUDE.md without Session Boot was removed"
 
+# --- a project the kit never entered (an install that aborted before writing) --
+echo "== uninstall leaves a project the kit never entered alone =="
+VTMP="$XTMP/never-entered"
+mkdir -p "$VTMP/scripts" "$VTMP/agent_docs" "$VTMP/.claude/hooks" "$VTMP/.claude/agents" "$VTMP/.claude/skills/mine" \
+         "$VTMP/wiki/pages" "$VTMP/artifacts" "$VTMP/raw-sources"
+echo '{"name":"never-entered","version":"1.0.0"}' > "$VTMP/package.json"
+NE_FILES="scripts/deploy.sh agent_docs/runbook.md .claude/hooks/mine.sh .claude/agents/mine.md .claude/skills/mine/SKILL.md wiki/pages/a.md artifacts/report.html raw-sources/paper.txt"
+for f in $NE_FILES; do echo "# the project's own" > "$VTMP/$f"; done
+( cd "$VTMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$VTMP/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$VTMP/.uninstall.log"; }
+for f in $NE_FILES; do
+  [ -f "$VTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
+done
+
 # --- strict profile: install path is otherwise never exercised ----------------
 echo "== strict profile install =="
 echo '{"name":"fixture-strict","version":"1.0.0"}' > "$STMP/package.json"

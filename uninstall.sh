@@ -110,6 +110,13 @@ fi
 # directories are still removed whole — the listing below shows them first.
 HAVE_MANIFEST=false
 [ "${#KIT_MANIFEST_ENTRIES[@]}" -gt 0 ] && HAVE_MANIFEST=true
+
+# Did the kit ever run here? Without a manifest, a record or its CLAUDE.md, the
+# shared folders (scripts/, .claude/hooks/, wiki/, artifacts/ ...) are the project's
+# own, and the whole-folder fallbacks below stay out of them — an install that
+# aborted before writing anything leaves exactly this.
+KIT_HERE=false
+ack_prior_install "$DEST" && KIT_HERE=true
 SHARED_DIRS="agent_docs scripts .claude/hooks .claude/skills .claude/agents"
 
 # baseline_hash <path> — the hash .kit-baseline records for <path>, if any.
@@ -355,7 +362,7 @@ else
 fi
 
 # Directories (shared ones only without a manifest — see HAVE_MANIFEST)
-if [ -d "$DEST/agent_docs" ] && [ "$HAVE_MANIFEST" = false ]; then
+if [ -d "$DEST/agent_docs" ] && [ "$HAVE_MANIFEST" = false ] && [ "$KIT_HERE" = true ]; then
   if [ "$KEEP_PROJECT" = true ] && [ -d "$DEST/agent_docs/project" ]; then
     # Remove kit files only, preserve project/ subdirectory
     DIRS_TO_REMOVE+=("agent_docs/*.md")
@@ -363,7 +370,7 @@ if [ -d "$DEST/agent_docs" ] && [ "$HAVE_MANIFEST" = false ]; then
     DIRS_TO_REMOVE+=("agent_docs/")
   fi
 fi
-[ -d "$DEST/scripts" ] && [ "$HAVE_MANIFEST" = false ] && DIRS_TO_REMOVE+=("scripts/")
+[ -d "$DEST/scripts" ] && [ "$HAVE_MANIFEST" = false ] && [ "$KIT_HERE" = true ] && DIRS_TO_REMOVE+=("scripts/")
 
 # tasks/ — the project's plans, lessons and decisions, and sometimes its own
 # code (a task-queue package is called tasks/ too). Never removed as a whole: a
@@ -391,7 +398,7 @@ fi
 
 # Wiki module (optional, installed via --wiki) — may contain user data
 WIKI_PRESENT=false
-if [ -f "$DEST/WIKI.md" ] || [ -d "$DEST/wiki" ] || [ -d "$DEST/raw-sources" ]; then
+if [ "$KIT_HERE" = true ] && { [ -f "$DEST/WIKI.md" ] || [ -d "$DEST/wiki" ] || [ -d "$DEST/raw-sources" ]; }; then
   WIKI_PRESENT=true
 fi
 if [ "$WIKI_PRESENT" = true ]; then
@@ -429,7 +436,7 @@ fi
 
 # HTML artifacts module (optional, installed via --html) — may contain user data
 ARTIFACTS_PRESENT=false
-if [ -f "$DEST/ARTIFACTS.md" ] || [ -d "$DEST/artifacts" ]; then
+if [ "$KIT_HERE" = true ] && { [ -f "$DEST/ARTIFACTS.md" ] || [ -d "$DEST/artifacts" ]; }; then
   ARTIFACTS_PRESENT=true
 fi
 if [ "$ARTIFACTS_PRESENT" = true ]; then
@@ -452,7 +459,7 @@ fi
 
 # .claude/ subdirectories (shared ones only without a manifest — see HAVE_MANIFEST)
 CLAUDE_DIRS_TO_REMOVE=()
-if [ -d "$DEST/.claude/hooks" ] && [ "$HAVE_MANIFEST" = false ]; then
+if [ -d "$DEST/.claude/hooks" ] && [ "$HAVE_MANIFEST" = false ] && [ "$KIT_HERE" = true ]; then
   if [ "$KEEP_PROJECT" = true ] && [ -d "$DEST/.claude/hooks/project" ]; then
     # Remove kit hooks only, preserve project/ subdirectory
     CLAUDE_DIRS_TO_REMOVE+=(".claude/hooks/*.sh")
@@ -460,8 +467,8 @@ if [ -d "$DEST/.claude/hooks" ] && [ "$HAVE_MANIFEST" = false ]; then
     CLAUDE_DIRS_TO_REMOVE+=(".claude/hooks/")
   fi
 fi
-[ -d "$DEST/.claude/agents" ] && [ "$HAVE_MANIFEST" = false ] && CLAUDE_DIRS_TO_REMOVE+=(".claude/agents/")
-[ -d "$DEST/.claude/skills" ] && [ "$HAVE_MANIFEST" = false ] && CLAUDE_DIRS_TO_REMOVE+=(".claude/skills/")
+[ -d "$DEST/.claude/agents" ] && [ "$HAVE_MANIFEST" = false ] && [ "$KIT_HERE" = true ] && CLAUDE_DIRS_TO_REMOVE+=(".claude/agents/")
+[ -d "$DEST/.claude/skills" ] && [ "$HAVE_MANIFEST" = false ] && [ "$KIT_HERE" = true ] && CLAUDE_DIRS_TO_REMOVE+=(".claude/skills/")
 
 CLAUDE_FILES_TO_REMOVE=()
 if [ -f "$DEST/.claude/settings.json" ] && may_remove ".claude/settings.json"; then
