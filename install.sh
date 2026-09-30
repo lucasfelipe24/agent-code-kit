@@ -37,6 +37,10 @@ UP_ADDED=0
 UP_UPDATED=0
 UP_UNCHANGED=0
 UP_BACKED_UP=0
+YOURS_FILES=()
+PRIOR_INSTALL=true
+RECORD_WAS_MARKED=false
+INSTALL_WRITING=false
 KEPT_FILES=()
 CONFLICT_FILES=()
 BACKUP_DIR=""
@@ -47,6 +51,15 @@ PREVIEW_LOG=""
 # scripts/lib/manifest.sh, sourced once the kit source tree is available below.
 manifest_add() {
   MANIFEST_ENTRIES+=("$1")
+}
+
+# manifest_drop <rel> — take <rel> back out: it turned out to be the project's.
+manifest_drop() {
+  local e keep=()
+  for e in ${MANIFEST_ENTRIES[@]+"${MANIFEST_ENTRIES[@]}"}; do
+    [ "$e" = "$1" ] || keep+=("$e")
+  done
+  MANIFEST_ENTRIES=(${keep[@]+"${keep[@]}"})
 }
 
 # Create wiki index.md template
@@ -772,7 +785,12 @@ upgrade_file() {
   base=$(baseline_lookup "$rel")
   src_hash=$(file_hash "$src")
   local_hash=$(file_hash "$dest")
-  if [ -z "$base" ]; then
+  if [ -z "$base" ] && { [ "$RECORD_WAS_MARKED" = true ] || [ "$PRIOR_INSTALL" = false ]; }; then
+    # ADR-030: the record is complete (or the kit was never here), so a file it
+    # doesn't list is the project's own — kept, not listed, not recorded.
+    manifest_drop "$rel"
+    YOURS_FILES+=("$rel")
+  elif [ -z "$base" ]; then
     backup_file "$rel"
     replace_file "$src" "$dest"
     baseline_record "$src" "$rel"
@@ -875,6 +893,13 @@ baseline_write() {
   fi
   tmp=$(mktemp "$DEST/.kit-baseline.XXXXXX" 2>/dev/null) || tmp=$(mktemp)
   {
+    # #complete (ADR-030): every kit path is recorded or known to be the project's.
+    # A first install, any --upgrade, and a plain run over an already-marked record
+    # leave it so; a plain run over an unmarked or missing record does not, and an
+    # interrupted run never does.
+    if [ "${1:-}" != partial ] && { [ "$UPGRADE" = true ] || [ "$PRIOR_INSTALL" = false ] || [ "$RECORD_WAS_MARKED" = true ]; }; then
+      printf '#complete\t1\n'
+    fi
     if [ -n "$template" ]; then
       printf '#template\t%s\n' "$template"
     fi
@@ -895,7 +920,7 @@ baseline_write() {
 print_upgrade_summary() {
   local f
   echo ""
-  echo -e "  Upgrade summary: ${GREEN}${UP_UPDATED} updated${NC} · ${GREEN}${UP_ADDED} added${NC} · ${UP_UNCHANGED} unchanged · ${YELLOW}${#KEPT_FILES[@]} kept (local edits)${NC} · ${RED}${#CONFLICT_FILES[@]} conflicts${NC}"
+  echo -e "  Upgrade summary: ${GREEN}${UP_UPDATED} updated${NC} · ${GREEN}${UP_ADDED} added${NC} · ${UP_UNCHANGED} unchanged · ${YELLOW}${#KEPT_FILES[@]} kept (local edits)${NC} · ${RED}${#CONFLICT_FILES[@]} conflicts${NC} · ${#YOURS_FILES[@]} yours"
   if [ "$UP_BACKED_UP" -gt 0 ]; then
     echo "  $UP_BACKED_UP replaced file(s) predate the install record — previous copies are in $BACKUP_DIR/"
   fi
@@ -913,10 +938,24 @@ print_upgrade_summary() {
       echo "       - $f"
     done
   fi
+  if [ "${#YOURS_FILES[@]}" -gt 0 ]; then
+    echo ""
+    info "Yours — the kit has a file at these paths but its version isn't installed (delete yours and re-run to get the kit's):"
+    for f in "${YOURS_FILES[@]}"; do
+      echo "       - $f"
+    done
+  fi
   print_attention "$DEST" "$CLONE_DIR"
 }
 
 cleanup() {
+  local rc=$?
+  # A real run that failed midway: write what it did as an unmarked record, so the
+  # next --upgrade completes it (ADR-023) instead of finding unrecorded kit files.
+  if [ "$rc" -ne 0 ] && [ "$INSTALL_WRITING" = true ] && [ "$NO_HASH" != true ]; then
+    [ -f "$DEST/$MANIFEST_FILE" ] || manifest_write "$DEST" 2>/dev/null || true
+    baseline_write partial 2>/dev/null || true
+  fi
   # Only clean up if we cloned to a temp directory (not --local mode)
   if [ "$LOCAL_SOURCE" = false ] && [ -n "$CLONE_DIR" ] && [ -d "$CLONE_DIR" ]; then
     rm -rf "$CLONE_DIR"
@@ -1249,6 +1288,11 @@ if [ "$UPGRADE" != true ] && [ -d "$CLONE_DIR/.claude/hooks/lib" ] && [ -d "$DES
     esac
   done
 fi
+
+# What the record says before this run touches anything.
+ack_prior_install "$DEST" || PRIOR_INSTALL=false
+ack_record_complete "$DEST" && RECORD_WAS_MARKED=true
+INSTALL_WRITING=true
 
 # Copy VERSION file (always, all profiles)
 cp "$CLONE_DIR/VERSION" "$DEST/VERSION"

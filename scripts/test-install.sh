@@ -805,6 +805,8 @@ P="$XTMP/own-script"
 mkdir -p "$P/scripts" && echo 'echo my own validate' > "$P/scripts/validate.sh"
 cp "$P/scripts/validate.sh" "$XTMP/own-validate.sh"
 fresh "$P"
+# A record that isn't marked complete (ADR-023's case); the marked one is next.
+grep -v '^#complete' "$P/.kit-baseline" > "$P/.kit-baseline.tmp" && mv "$P/.kit-baseline.tmp" "$P/.kit-baseline"
 kit "$P" .diff.log --diff || fail "--diff failed with an own scripts/validate.sh"
 kit "$P" .upgrade.log --upgrade || fail "upgrade failed with an own scripts/validate.sh"
 cmp -s "$KIT_ROOT/scripts/validate.sh" "$P/scripts/validate.sh" && pass "the kit's scripts/validate.sh lands" \
@@ -818,6 +820,47 @@ same_counts "$P" .diff.log .upgrade.log "a file with no entry in the record"
 kit "$P" .upgrade2.log --upgrade || fail "second upgrade failed"
 [[ "$(upgrade_counts "$P/.upgrade2.log")" == "0 0 0" ]] && pass "the next upgrade is quiet" \
   || fail "next upgrade: $(upgrade_counts "$P/.upgrade2.log")"
+
+echo "== upgrade: under a complete record a file with no entry is the project's (ADR-030) =="
+P="$XTMP/own-script-complete"
+mkdir -p "$P/scripts/lib" "$P/.claude/agents" && echo 'echo my own validate' > "$P/scripts/validate.sh"
+echo '# my own reviewer' > "$P/.claude/agents/code-reviewer.md"
+OWN_BEFORE=$(cd "$P" && cksum scripts/validate.sh .claude/agents/code-reviewer.md)
+fresh "$P"
+ack_record_complete "$P" && pass "a first install marks the record complete" || fail "a first install left the record unmarked"
+kit "$P" .diff.log --diff || fail "--diff failed"
+kit "$P" .upgrade.log --upgrade || fail "upgrade failed"
+[ "$OWN_BEFORE" = "$(cd "$P" && cksum scripts/validate.sh .claude/agents/code-reviewer.md)" ] \
+  && pass "the project's own files are byte-identical after --upgrade" || fail "--upgrade changed the project's own files"
+[ ! -d "$P/.kit-backup" ] && pass "nothing was replaced, so no backup" || fail "a backup was made"
+same_counts "$P" .diff.log .upgrade.log "the project's own files under a complete record"
+[[ "$(strip_log "$P/.upgrade.log")" == *"2 yours"* ]] && pass "the summary counts them as yours" || fail "no '2 yours' in the summary"
+awk -F'\t' '$2 == "scripts/validate.sh" { f = 1 } END { exit !f }' "$P/.kit-baseline" && fail "the record took the project's validate.sh" || pass "the record still omits validate.sh"
+grep -qxF "scripts/validate.sh" "$P/.kit-manifest" && fail "the manifest lists the project's validate.sh" || pass "the manifest omits validate.sh"
+ack_record_complete "$P" && pass "the upgrade keeps the record complete" || fail "the upgrade dropped #complete"
+kit "$P" .upgrade2.log --upgrade || fail "second upgrade failed"
+[[ "$(upgrade_counts "$P/.upgrade2.log")" == "0 0 0" ]] && pass "the next upgrade is quiet" || fail "next upgrade: $(upgrade_counts "$P/.upgrade2.log")"
+
+echo "== a plain run never marks a record it didn't complete =="
+P="$XTMP/plain-unmarked"
+fresh "$P"
+grep -v '^#complete' "$P/.kit-baseline" > "$P/.kit-baseline.tmp" && mv "$P/.kit-baseline.tmp" "$P/.kit-baseline"
+kit "$P" .again.log --profile minimal
+ack_record_complete "$P" && fail "a plain run marked an unmarked record complete" || pass "a plain run leaves an unmarked record unmarked"
+kit "$P" .up.log --upgrade
+ack_record_complete "$P" && pass "an --upgrade then marks it" || fail "an --upgrade left the record unmarked"
+
+echo "== a first install cut short is completed by the next --upgrade =="
+P="$XTMP/cut-short"
+mkdir -p "$P/.claude" && echo '{"name":"cs","version":"1.0.0"}' > "$P/package.json"
+: > "$P/.claude/agents"    # a regular file where a folder belongs: the run stops at the agents
+kit "$P" .install.log && fail "the install should have stopped at .claude/agents" || pass "the install stopped partway"
+[ -f "$P/.kit-baseline" ] && pass "the interrupted run left a record" || fail "no record after an interrupted run"
+ack_record_complete "$P" && fail "an interrupted run marked the record complete" || pass "the interrupted record is not marked"
+rm -f "$P/.claude/agents"
+kit "$P" .upgrade.log --upgrade && pass "the next --upgrade ran clean" || { fail "the next --upgrade failed"; tail -5 "$P/.upgrade.log"; }
+[ -z "$(find "$P" -name '*.kit-new*')" ] && pass "no .kit-new was written" || fail "a .kit-new was written"
+[ -f "$P/.claude/agents/planner.md" ] && ack_record_complete "$P" && pass "the upgrade completed the install and marked the record" || fail "the install wasn't completed"
 
 echo "== the stale report never calls the project's own files the kit's =="
 # Older installs recorded every existing script and skill in .kit-manifest, so a
@@ -1136,7 +1179,9 @@ owner_is "a record holding only #template" no-record "$P" .claude/agents/code-re
 
 P="$XTMP/own-flags"
 fresh "$P"
-ack_record_complete "$P" && fail "a fresh record reads as complete before anything marks it" || pass "a record without #complete is not complete"
+ack_record_complete "$P" && pass "a first install marks the record complete" || fail "a fresh record is not marked complete"
+grep -v '^#complete' "$P/.kit-baseline" > "$P/.kit-baseline.tmp" && mv "$P/.kit-baseline.tmp" "$P/.kit-baseline"
+ack_record_complete "$P" && fail "a record without #complete reads as complete" || pass "a record without #complete is not complete"
 printf '#complete\t1\n' >> "$P/.kit-baseline"
 ack_record_complete "$P" && pass "#complete marks the record" || fail "#complete was not read"
 sed 's/$/\r/' "$P/.kit-baseline" > "$XTMP/flags.crlf" && cp "$XTMP/flags.crlf" "$P/.kit-baseline"
