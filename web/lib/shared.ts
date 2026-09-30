@@ -10,6 +10,27 @@ export function withBase(path: string): string {
   return `${basePath}${path}`;
 }
 
+// Markdown served as text (llms.txt, page .md) has no <Link> to add basePath,
+// so prefix root-relative inline link targets: `](/en/…` → `](/<repo>/en/…`.
+// Code fences and inline code are left as written; `](//host` and targets that
+// already carry the base path are skipped, so applying it twice is harmless.
+const rootLink = new RegExp(`\\]\\(/(?!/|${basePath.slice(1)}/)`, 'g');
+
+export function withBaseLinks(markdown: string): string {
+  let fence = false;
+  return markdown
+    .split('\n')
+    .map((line) => {
+      if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+      if (fence || !line.includes('](/')) return line;
+      return line
+        .split(/(`[^`]*`)/)
+        .map((part, i) => (i % 2 ? part : part.replace(rootLink, `](${basePath}/`)))
+        .join('');
+    })
+    .join('\n');
+}
+
 export const gitConfig = {
   user: 'lucasfelipe24',
   repo: 'agent-code-kit',
