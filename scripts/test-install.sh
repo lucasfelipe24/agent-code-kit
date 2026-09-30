@@ -1423,6 +1423,17 @@ else
   echo "  - skipped: no python3 to detach the terminal"
 fi
 
+# --- S10: G1 — .kit-baseline in the .gitignore block ---------------------------
+echo "== --gitignore lists .kit-baseline, once =="
+G="$XTMP/gi-new"; mkdir -p "$G"; echo '{"name":"g","version":"1.0.0"}' > "$G/package.json"
+kit "$G" .install.log --gitignore
+grep -qxF ".kit-baseline" "$G/.gitignore" && pass "a new block holds .kit-baseline" || fail "a new block lacks .kit-baseline"
+G2="$XTMP/gi-old"; mkdir -p "$G2"; echo '{"name":"g","version":"1.0.0"}' > "$G2/package.json"
+printf 'node_modules/\n\n# Agent Code Kit (local-only)\nVERSION\n.kit-manifest\nCLAUDE.md\n' > "$G2/.gitignore"
+kit "$G2" .install.log --gitignore; kit "$G2" .install2.log --gitignore
+[ "$(grep -cxF ".kit-baseline" "$G2/.gitignore")" = 1 ] && pass "an old block gains .kit-baseline exactly once over two runs" || fail "an old block has $(grep -cxF ".kit-baseline" "$G2/.gitignore") .kit-baseline lines"
+grep -qxF "node_modules/" "$G2/.gitignore" && grep -qxF "CLAUDE.md" "$G2/.gitignore" && pass "the rest of the file is intact" || fail "the .gitignore lost lines"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

@@ -1870,12 +1870,21 @@ if [ "$GITIGNORE" = true ]; then
   # Check if we already added kit entries
   if [ -f "$GITIGNORE_FILE" ] && grep -qF "$MARKER" "$GITIGNORE_FILE"; then
     warn ".gitignore already has Agent Code Kit entries — skipping"
+    # A block written before .kit-baseline was listed gains that one line, once.
+    if ! grep -qxF ".kit-baseline" "$GITIGNORE_FILE"; then
+      _gi_tmp=$(mktemp "$DEST/.gitignore.XXXXXX" 2>/dev/null) || _gi_tmp=$(mktemp)
+      awk -v m="$MARKER" '{ print } $0 == m && !done { print ".kit-baseline"; done = 1 }' "$GITIGNORE_FILE" > "$_gi_tmp" \
+        && cat "$_gi_tmp" > "$GITIGNORE_FILE"
+      rm -f "$_gi_tmp"
+      ok "Added .kit-baseline to the Agent Code Kit block in .gitignore"
+    fi
   else
     {
       echo ""
       echo "$MARKER"
       [ "$VERSION_OURS" = true ] && echo "VERSION"
       echo ".kit-manifest"
+      echo ".kit-baseline"
       echo "CLAUDE.md"
       echo "CLAUDE.project.md"
       echo "CODEBASE_MAP.md"
