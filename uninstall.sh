@@ -15,7 +15,6 @@ DEST="$(pwd)"
 DRY_RUN=false
 FORCE=false
 KEEP_TASKS=false
-KEEP_PROJECT=false
 KEEP_WIKI=false
 KEEP_ARTIFACTS=false
 
@@ -49,7 +48,6 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --keep-project|-p)
-      KEEP_PROJECT=true
       shift
       ;;
     --keep-wiki)
@@ -89,7 +87,7 @@ echo ""
 FILES_TO_REMOVE=()
 DIRS_TO_REMOVE=()
 # What the optional modules seeded, as the installer wrote it (install.sh
-# create_wiki_index / create_wiki_log; a test keeps the two in step).
+# create_wiki_index / create_wiki_log; the wiki test in test-install.sh fails if the two drift).
 WIKI_SEED_INDEX='# Wiki Index
 
 Last updated: —
@@ -232,6 +230,8 @@ ack_prior_install() {
 KIT_SRC=""
 [ -n "${BASH_SOURCE[0]:-}" ] && KIT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 [ -d "$KIT_SRC/scaffold/tasks" ] && command -v cmp >/dev/null 2>&1 || KIT_SRC=""
+# Run from the kit's own tree, every file "matches" itself: compare nothing.
+[ "$KIT_SRC" -ef "$DEST" ] && KIT_SRC=""
 
 # same_as_kit <file> <kit-relative path> — is <file> still the kit's copy, byte
 # for byte?
@@ -281,7 +281,7 @@ KEPT_UNVERIFIED=()
 # record_backed <path> — does the installer record this path in .kit-baseline?
 # agent_docs/, scripts/, .claude/, WIKI.md, ARTIFACTS.md and CLAUDE.md are.
 # VERSION, CODEBASE_MAP.md, CLAUDE.project.md and tasks/ are not, and keep their
-# own rules below; the overlay folders are handled by --keep-project.
+# own rules below; the overlay folders are compared with the kit's copies.
 record_backed() {
   case "$1" in
     agent_docs/project/*|.claude/hooks/project/*) return 1 ;;
@@ -320,7 +320,7 @@ may_remove() {
 # Files in the shared directories the manifest doesn't list: an older kit
 # version's untouched leftovers are removed; everything else is the project's
 # own and stays. The overlay directories are handled on their own
-# (--keep-project).
+# (compared with the kit's copies).
 LEFTOVERS_TO_REMOVE=()
 if [ "$HAVE_MANIFEST" = true ]; then
   for _dir in $SHARED_DIRS; do
@@ -540,7 +540,7 @@ manifest_entry_covered() {
   for r in ${DIRS_TO_REMOVE[@]+"${DIRS_TO_REMOVE[@]}"} ${CLAUDE_DIRS_TO_REMOVE[@]+"${CLAUDE_DIRS_TO_REMOVE[@]}"}; do
     case "$r" in
       */\*.sh|*/\*.md)
-        # A glob entry (e.g. .claude/hooks/*.sh, kept whole under --keep-project)
+        # A glob entry (e.g. .claude/hooks/*.sh, matched as a whole)
         # covers only DIRECT children matching the pattern — NOT subdirs such as
         # the manifest's .claude/hooks/lib, which the backstop must still remove.
         pre="${r%/*}"; ext="${r##*.}"

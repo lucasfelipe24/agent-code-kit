@@ -1498,6 +1498,8 @@ for f in CLAUDE.project.md agent_docs/project .claude/hooks/project agent_docs .
 done
 OV3="$XTMP/ov-keep-flag"; fresh "$OV3"
 ( cd "$OV3" && bash "$KIT_ROOT/uninstall.sh" --force --keep-project >"$OV3/.uninstall.log" 2>&1 ) && pass "--keep-project is still accepted" || fail "--keep-project errored"
+[ ! -e "$OV3/CLAUDE.project.md" ] && [ ! -e "$OV3/agent_docs/project" ] \
+  && pass "--keep-project changes nothing: the untouched overlay still goes" || fail "--keep-project kept an untouched overlay"
 
 echo "== uninstall keeps module data: wiki pages, raw sources and artifacts =="
 MD="$XTMP/mod-data"; fresh "$MD" --wiki --html
@@ -1514,6 +1516,32 @@ echo "my notes" >> "$MD2/wiki/index.md"; echo "<!-- mine -->" >> "$MD2/artifacts
 ( cd "$MD2" && bash "$KIT_ROOT/uninstall.sh" --force >"$MD2/.uninstall.log" 2>&1 )
 grep -q "my notes" "$MD2/wiki/index.md" 2>/dev/null && grep -q "<!-- mine -->" "$MD2/artifacts/design-system.html" 2>/dev/null \
   && pass "an edited wiki index and design system stay" || fail "an edited seed file was removed"
+
+MD3="$XTMP/mod-mixed"; fresh "$MD3" --wiki --html
+echo "- entry" >> "$MD3/wiki/log.md"; echo "<!-- mine -->" >> "$MD3/artifacts/index.html"; echo "mine" >> "$MD3/agent_docs/project/mission.md"
+( cd "$MD3" && bash "$KIT_ROOT/uninstall.sh" --force >"$MD3/.uninstall.log" 2>&1 )
+for f in wiki/log.md artifacts/index.html agent_docs/project/mission.md; do
+  [ -f "$MD3/$f" ] && pass "an edited $f stays" || fail "the edited $f was removed"
+done
+for f in wiki/index.md artifacts/design-system.html agent_docs/project/roadmap.md; do
+  [ ! -e "$MD3/$f" ] && pass "its untouched sibling $f goes" || fail "the untouched sibling $f was left"
+done
+
+echo "== uninstall --dry-run on the project's files changes nothing =="
+MD4="$XTMP/mod-dry"; fresh "$MD4" --wiki --html
+echo "# page" > "$MD4/wiki/summaries/a.md"; echo "mine" >> "$MD4/CLAUDE.project.md"
+DRY_BEFORE=$(cd "$MD4" && find . -type f | sort | xargs cksum)
+( cd "$MD4" && bash "$KIT_ROOT/uninstall.sh" --dry-run >"$MD4/.dry.log" 2>&1 )
+[ "$DRY_BEFORE" = "$(cd "$MD4" && find . -type f ! -name .dry.log | sort | xargs cksum)" ] \
+  && pass "--dry-run leaves every file alone" || fail "--dry-run changed the tree"
+
+echo "== uninstall run from a copy of the kit's own tree keeps the project's files =="
+KC="$XTMP/kit-copy"; mkdir -p "$KC"; tar -C "$KIT_ROOT" --exclude=.git --exclude=node_modules -cf - . | tar -C "$KC" -xf -
+echo "- mine" >> "$KC/CLAUDE.project.md"; echo "# mine" > "$KC/agent_docs/project/custom.md"
+KC_BEFORE=$(cd "$KC" && cksum CLAUDE.project.md agent_docs/project/custom.md)
+( cd "$KC" && bash "$KC/uninstall.sh" --force >"$KC/.uninstall.log" 2>&1 )
+[ "$KC_BEFORE" = "$(cd "$KC" && cksum CLAUDE.project.md agent_docs/project/custom.md 2>&1)" ] \
+  && pass "an edited overlay and a project file survive in the kit's own tree" || fail "uninstall deleted files in the kit's own tree"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then
