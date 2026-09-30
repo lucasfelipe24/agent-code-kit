@@ -2078,7 +2078,7 @@ record_kit_settings() {
   out=$(ack_settings plan "$DEST/.claude/settings.json" "$(kit_settings_file)" "$hooks" "$DEST/$BASELINE_FILE") || out="manual"
   rm -f "$hooks"
   # A failed read keeps the records of the last run (HOOK_RECORDS_SET stays false).
-  if ! printf '%s\n' "$out" | grep -q '^manual'; then settings_take "$out"; fi
+  if ! grep -q '^manual' <<<"$out"; then settings_take "$out"; fi
   return 0
 }
 
@@ -2097,20 +2097,20 @@ merge_kit_settings() {
     SETTINGS_KEPT=true
     return 0
   fi
-  if printf '%s\n' "$plan" | grep -q '^manual'; then
+  if grep -q '^manual' <<<"$plan"; then
     rm -f "$hooks"
     warn "Kept $rel: it is not strict JSON (comments?), so the kit's hooks were not merged into it."
     SETTINGS_KEPT=true
     return 0
   fi
   out="$plan"
-  if printf '%s\n' "$plan" | grep -Eq '^(add|update|remove|env)'; then
+  if grep -Eq '^(add|update|remove|env)' <<<"$plan"; then
     backup_file "$rel"
     backed=" (your copy is in $BACKUP_DIR/$rel)"
     out=$(ack_settings merge "$DEST/$rel" "$(kit_settings_file)" "$hooks" "$DEST/$BASELINE_FILE") || out="manual"
   fi
   rm -f "$hooks"
-  if printf '%s\n' "$out" | grep -q '^manual'; then
+  if grep -q '^manual' <<<"$out"; then
     warn "Kept $rel: the merge could not be applied ($(printf '%s\n' "$out" | awk -F'\t' '$1 == "manual" { print $2; exit }')). Your copy is in ${BACKUP_DIR:-.kit-backup}/$rel."
     SETTINGS_KEPT=true
     return 0

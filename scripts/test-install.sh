@@ -1747,7 +1747,8 @@ rm -f "$SE/settings.local.json"
 cat > "$SE/s4.json" <<'J'
 {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/a.sh","timeout":99}]}]}}
 J
-ack_settings merge "$SE/s4.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1 | grep -q '^edited' && se_has "$SE/s4.json" '"timeout": 99' \
+S4_OUT=$(ack_settings merge "$SE/s4.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+grep -q '^edited' <<<"$S4_OUT" && se_has "$SE/s4.json" '"timeout": 99' \
   && pass "an edited kit entry is kept and reported" || fail "an edited kit entry was replaced or not reported"
 ack_settings rewrite "$SE/s4.json" "" "$SE/kit-hooks" "$SE/norec" .claude/hooks/a.sh=.claude/kit/hooks/a.sh >/dev/null 2>&1
 se_has "$SE/s4.json" '.claude/kit/hooks/a.sh' && se_has "$SE/s4.json" '"timeout": 99' && pass "rewrite changes the path and keeps the user's fields" || fail "rewrite lost a field"
@@ -1760,7 +1761,8 @@ printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":".claude
 cat > "$SE/kit-old.json" <<'J'
 {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":".claude/hooks/old.sh"}]}]}}
 J
-OLD_REC=$(ack_settings plan "$SE/s5.json" "$SE/kit-old.json" <(echo .claude/hooks/old.sh) "$SE/norec" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5}')
+echo .claude/hooks/old.sh > "$SE/hooks-old"
+OLD_REC=$(ack_settings plan "$SE/s5.json" "$SE/kit-old.json" "$SE/hooks-old" "$SE/norec" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5}')
 printf '%s\n' "$OLD_REC" > "$SE/s5.rec"
 printf '%s\n' .claude/hooks/old.sh .claude/hooks/a.sh > "$SE/kit-hooks2"
 ack_settings merge "$SE/s5.json" "$SE/kit.json" "$SE/kit-hooks2" "$SE/s5.rec" >/dev/null 2>&1
@@ -1790,7 +1792,7 @@ grep -q "^$(printf '\t\t')\"SessionStart\"" "$SE/s10.json" && pass "a tab-indent
 printf '{\n  // mine\n  "permissions": {}\n}\n' > "$SE/s11.json"
 S11_SUM=$(cksum < "$SE/s11.json")
 S11_OUT=$(ack_settings merge "$SE/s11.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
-[ "$S11_SUM" = "$(cksum < "$SE/s11.json")" ] && printf '%s' "$S11_OUT" | grep -q '^manual' && pass "a file with comments is left alone and reported manual" || fail "a JSONC file was written: $S11_OUT"
+[ "$S11_SUM" = "$(cksum < "$SE/s11.json")" ] && grep -q '^manual' <<<"$S11_OUT" && pass "a file with comments is left alone and reported manual" || fail "a JSONC file was written: $S11_OUT"
 
 # 11. a symlinked settings.json is written through
 printf '{}\n' > "$SE/real.json"; ln -sf real.json "$SE/s12.json"
@@ -1842,14 +1844,15 @@ printf '%s\n' "$U1_OUT" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s
 cat > "$SE/kit-v2.json" <<'J'
 {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/a.sh","timeout":5}]}]}}
 J
-ack_settings merge "$SE/u1.json" "$SE/kit-v2.json" "$SE/kit-hooks" "$SE/u1.rec" 2>&1 | grep -q '^update' && se_has "$SE/u1.json" '"timeout": 5' \
+U1_OUT2=$(ack_settings merge "$SE/u1.json" "$SE/kit-v2.json" "$SE/kit-hooks" "$SE/u1.rec" 2>&1)
+grep -q '^update' <<<"$U1_OUT2" && se_has "$SE/u1.json" '"timeout": 5' \
   && pass "an unedited kit entry is updated to the kit's newer one" || fail "the kit's newer entry was not applied"
 # ...and an edited one is kept, with its old record carried on
 printf '{}\n' > "$SE/u2.json"
 ack_settings merge "$SE/u2.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
 sed -i.bak 's/a\.sh"/a.sh", "timeout": 99/' "$SE/u2.json"; rm -f "$SE/u2.json.bak"
 U2_OUT=$(ack_settings merge "$SE/u2.json" "$SE/kit-v2.json" "$SE/kit-hooks" "$SE/u1.rec" 2>&1)
-printf '%s\n' "$U2_OUT" | grep -q '^edited' && se_has "$SE/u2.json" '"timeout": 99' && printf '%s\n' "$U2_OUT" | grep -q '^record.*SessionStart' \
+grep -q '^edited' <<<"$U2_OUT" && se_has "$SE/u2.json" '"timeout": 99' && grep -q '^record.*SessionStart' <<<"$U2_OUT" \
   && pass "an edited kit entry stays, reported, and its record is carried on" || fail "an edited entry with a record was mishandled: $U2_OUT"
 
 # paths that are not the project's own, and commands that are not just the hook
@@ -1864,7 +1867,7 @@ ack_settings merge "$SE/a1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/de
 A1_OUT=$(ack_settings strip "$SE/a1.json" "" "$SE/kit-hooks" "$SE/norec" 2>&1)
 [ "$(se_count "$SE/a1.json")" = 3 ] && se_has "$SE/a1.json" '~/.claude/hooks/a.sh --global' && se_has "$SE/a1.json" '/opt/shared' && se_has "$SE/a1.json" 'c.sh --flag' \
   && pass "strip leaves the project's foreign paths and its hook with arguments" || fail "strip removed one of the project's own handlers"
-printf '%s\n' "$A1_OUT" | grep -q '^left.*c.sh' && pass "and names the one that still runs a removed kit script" || fail "strip did not report the entry that still names a kit script"
+grep -q '^left.*c.sh' <<<"$A1_OUT" && pass "and names the one that still runs a removed kit script" || fail "strip did not report the entry that still names a kit script"
 
 # env keys the project set are not the kit's to remove
 printf '{"env":{"ACK_PROTECT_BUILD_CONFIGS":"1"}}\n' > "$SE/e1.json"
@@ -1884,7 +1887,7 @@ cmp -s "$SE/g1.json" "$SE/g1.orig" && pass "merge then strip keeps the project's
 printf '{"hooks":{"SessionStart":{}}}\n' > "$SE/x1.json"
 X1_SUM=$(cksum < "$SE/x1.json")
 X1_OUT=$(ack_settings merge "$SE/x1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
-[ "$X1_SUM" = "$(cksum < "$SE/x1.json")" ] && printf '%s\n' "$X1_OUT" | grep -q '^manual' && ! printf '%s' "$X1_OUT" | grep -q Traceback \
+[ "$X1_SUM" = "$(cksum < "$SE/x1.json")" ] && grep -q '^manual' <<<"$X1_OUT" && ! grep -q Traceback <<<"$X1_OUT" \
   && pass "an unexpected shape is reported as manual and left alone" || fail "an odd settings shape was mishandled: $X1_OUT"
 
 # plan never writes

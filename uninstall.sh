@@ -1198,7 +1198,7 @@ if [ -f "$DEST/.claude/settings.json" ] && [ "$SETTINGS_HOOK_RECORDS" -gt 0 ]; t
     [ -f "$DEST/.kit-backup/.gitignore" ] || printf '*\n!.gitignore\n' > "$DEST/.kit-backup/.gitignore"
     cp -p "$DEST/.claude/settings.json" "$DEST/$_sb/.claude/settings.json"
     _st=0; _strip_out=$(ack_settings strip "$DEST/.claude/settings.json" "$_kit_settings" "$_gone" "${SETTINGS_REC_COPY:-/dev/null}" "") || _st=$?
-    if [ "$_st" -ne 0 ] || printf '%s\n' "$_strip_out" | grep -q '^manual'; then
+    if [ "$_st" -ne 0 ] || grep -q '^manual' <<<"$_strip_out"; then
       warn ".claude/settings.json still registers kit hooks that were removed — each fails on every matching event; delete those entries"
     else
       _n=$(printf '%s\n' "$_strip_out" | grep -c '^remove' || true)
