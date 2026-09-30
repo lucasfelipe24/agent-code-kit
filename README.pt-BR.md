@@ -300,7 +300,7 @@ O plano em `tasks/todo.md` e as decisões em `tasks/decisions.md` sobrevivem a q
 ### Adotar num projeto existente
 
 1. Rode o `init`. O seu `CLAUDE.md`, o seu `.claude/settings.json` e os seus hooks, agentes e scripts ficam como estão, e o instalador lista o que deixou intacto.
-2. Manteve o seu `settings.json`? Registre nele os hooks do kit — o `doctor` falha até você fazer isso.
+2. Tem o seu próprio `settings.json`? O `init` adiciona nele os hooks do kit e mantém as suas entradas e permissões (uma cópia de segurança é salva antes). Se não conseguir — sem `python3`, ou o arquivo tem comentários — o `doctor` falha até você registrar os hooks à mão.
 3. Manteve o seu `CLAUDE.md`? Mova as suas regras para o `CLAUDE.project.md` para ativar as do kit (veja as [Perguntas frequentes](#-perguntas-frequentes)).
 4. Preencha o `CODEBASE_MAP.md`. O `/constitution` consegue inferir os seus princípios de código a partir do código existente e gravá-los em `golden-principles.yaml`, e o `/quality-audit` depois verifica o código contra eles.
 
@@ -421,7 +421,7 @@ Tudo vai para o diretório do seu projeto, onde você pode ler e editar. Nada é
 | `agent_docs/` | Guias que o Claude lê quando são relevantes: fluxo de trabalho, debugging, testes, hooks | Atualizado, exceto `agent_docs/project/` (seu) |
 | `.claude/hooks/` | Os 28 scripts de hook | Atualizado, exceto `.claude/hooks/project/` (seu) |
 | `.claude/skills/`, `.claude/agents/` | Skills e subagentes | Atualizado |
-| `.claude/settings.json` | Quais hooks rodam e as listas de permissão e bloqueio de comandos | Nunca alterado |
+| `.claude/settings.json` | Quais hooks rodam e as listas de permissão e bloqueio de comandos | Só as entradas de hook do kit são adicionadas, atualizadas ou removidas |
 | `tasks/` | Plano, decisões, lições e handoffs — o Claude escreve aqui enquanto trabalha | Nunca alterado |
 | `scripts/` | `doctor.sh`, `statusline.sh`, `convert.sh` e outros utilitários | Atualizado |
 | `.kit-manifest`, `.kit-baseline` | O que o kit instalou, para que upgrades e a desinstalação mexam só nos arquivos dele | Reescrito |
@@ -587,7 +587,7 @@ npx @lucasfelipe23/agent-code-kit@latest init --upgrade
 - Os arquivos do kit que você não editou são atualizados.
 - Os arquivos do kit que você editou são mantidos. Se o kit também os mudou, a versão dele é salva ao lado da sua como `<arquivo>.kit-new` para você fazer o merge.
 - Um arquivo seu em um caminho que o kit também usa (o seu `scripts/validate.sh`, o seu `.claude/agents/code-reviewer.md`) fica como está quando o registro da instalação está marcado como completo, o que toda primeira instalação e todo `--upgrade` fazem. O resumo lista esses arquivos como "yours". Apague o seu e rode de novo para receber a versão do kit. Uma instalação anterior ao registro substitui esse arquivo e guarda a cópia anterior em `.kit-backup/`.
-- Os seus arquivos — `CODEBASE_MAP.md`, `CLAUDE.project.md`, `tasks/`, `.claude/settings.json` e as pastas `project/` — nunca são alterados.
+- Os seus arquivos — `CODEBASE_MAP.md`, `CLAUDE.project.md`, `tasks/` e as pastas `project/` — nunca são alterados. No `.claude/settings.json` mudam só as entradas de hook do próprio kit; as suas entradas e permissões ficam.
 
 Adicione `--diff` para pré-visualizar um upgrade: ele roda numa cópia descartável e informa o que mudaria, sem escrever no seu projeto. Para instalar uma versão específica, coloque-a no nome do pacote: `npx @lucasfelipe23/agent-code-kit@1.22.2 init`.
 

@@ -484,6 +484,7 @@ Track important technical decisions here so they don't get lost between sessions
   - It honors `--local`, `--version`, `--profile`, `--template`, `--wiki` and `--html`, exactly as `--upgrade` would.
   - `test-install.sh` checks that the upgrade after a preview changes exactly what the preview named.
 - **Amended 2026-09-11 (ADR-023)**: the scratch copy follows symlinks and then drops any link left, so the scratch upgrade can't write outside it; the preview names kit paths that are symlinks. "Stale" now needs a `.kit-baseline` entry. The upgrade counts every file it creates, so the preview's "to add" equals its "added".
+- **Amended 2026-09-30 (ADR-032)**: `--upgrade` now changes `.claude/settings.json` — only the kit's hook entries (and missing strict `ACK_*` env keys), after a backup. `--diff` shows it as an update of `.claude/settings.json` with one line per entry (`+` added, `~` updated, `=` your edited entry kept, `-` removed), and stops reporting hooks the upgrade will register as unregistered.
 
 ### ADR-020: commands.json — an absent key auto-detects, "" turns a check off, anything unknown is an error
 - **Date**: 2026-09-11
@@ -562,6 +563,7 @@ Track important technical decisions here so they don't get lost between sessions
   - `test-install.sh` covers each case plus a pre-baseline install; the same tests fail 10× against the previous installer.
   - `--diff` reporting of leftover files and missing or dangling settings registrations is left to a follow-up.
 - **Amended 2026-09-11 (ADR-023)**: a file with no entry always takes the backup-and-replace path, whatever the record holds, and the log names the file and its backup. A kit copy never overwrites a `.kit-new` (it goes to `.kit-new.<n>`). An existing `CLAUDE.md` is never given an auto-detected template, and counts as the kit's only when it carries the kit's own sections; otherwise it's left untouched. An update writes a new file (temp + `mv`), so another hard link to a kit file keeps its content. With no hash tool `--upgrade` now stops before changing anything — "every differing file takes the pre-baseline path" above no longer holds.
+- **Amended 2026-09-30 (ADR-032)**: the record also carries `#hook` header lines — one per `settings.json` entry the kit registered, with the hash of the entry as the kit wrote it. `settings.json` itself stays unrecorded when it is the project's; `--upgrade` now merges the kit's hook entries into it by owner.
 
 ### ADR-016: protect-changes scopes auth + build-config blocking by intent and profile
 - **Date**: 2026-05-25
