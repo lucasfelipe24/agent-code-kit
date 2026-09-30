@@ -1,7 +1,7 @@
 ---
 title: Separate safe file preservation from successful kit integration
 created: 2026-09-28
-updated: 2026-09-28
+updated: 2026-09-30
 tags: [installer, upgrade, claude-md]
 problem_type: process
 source: correction
@@ -34,10 +34,12 @@ The architecture artifact has a preservation-versus-integration matrix and says 
 
 ## References
 
-- `install.sh:644-704`
-- `install.sh:733-762`
-- `install.sh:1061-1095`
-- `install.sh:1144-1159`
-- `scripts/test-install.sh:667-688`
-- `scripts/test-install.sh:839-853`
-- [[installed-capabilities-need-runtime-activation]]
+- `install.sh:677-725` — `upgrade_file`, the three-way update
+- `install.sh:757-783` — `kit_claude_md`, `installed_template`
+- `install.sh:1090-1105` — the unknown-template branch that leaves `CLAUDE.md` untouched
+- `install.sh:1144-1170` — first-install `CLAUDE.md` handling
+- `scripts/test-install.sh:710-731` — an unknown template is left untouched
+- `scripts/test-install.sh:883-894` — a `CLAUDE.md` written by `/init` survives the upgrade
+- [[2026-09-28-installed-capabilities-need-runtime-activation]]
+
+Line numbers are for `main` @ `622ef95`; they drift, so re-check them before citing.
