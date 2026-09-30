@@ -447,7 +447,7 @@ if [ -f ".claude/settings.json" ]; then
           *) HOOK_IS_KITS=false ;;
         esac
         if [ "$SETTINGS_NOT_KITS" = true ] && [ "$HOOK_IS_KITS" = true ]; then
-          fail "$basename is the kit's hook but your settings.json doesn't register it (nor settings.local.json) — it never runs"
+          fail "$basename is the kit's hook but your settings.json doesn't register it (nor settings.local.json) — it never runs; run install.sh --upgrade (needs python3) to register it, or add it by hand"
         else
           warn "$basename exists but is NOT in settings.json (orphan hook)"
         fi
