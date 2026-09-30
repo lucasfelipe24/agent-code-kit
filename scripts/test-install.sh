@@ -1434,6 +1434,33 @@ kit "$G2" .install.log --gitignore; kit "$G2" .install2.log --gitignore
 [ "$(grep -cxF ".kit-baseline" "$G2/.gitignore")" = 1 ] && pass "an old block gains .kit-baseline exactly once over two runs" || fail "an old block has $(grep -cxF ".kit-baseline" "$G2/.gitignore") .kit-baseline lines"
 grep -qxF "node_modules/" "$G2/.gitignore" && grep -qxF "CLAUDE.md" "$G2/.gitignore" && pass "the rest of the file is intact" || fail "the .gitignore lost lines"
 
+# --- S11: F2 — a kept settings.json that doesn't wire the kit's hooks ------------
+echo "== a kept settings.json: the install warns, doctor fails =="
+F2="$XTMP/f2"; mkdir -p "$F2/.claude"
+echo '{"name":"f2","version":"1.0.0"}' > "$F2/package.json"; printf '{"permissions":{"allow":[]}}\n' > "$F2/.claude/settings.json"
+kit "$F2" .install.log && pass "install beside a settings.json ran clean" || fail "install failed"
+F2_LOG=$(strip_log "$F2/.install.log")
+[[ "$F2_LOG" == *"registers none of these kit hooks"* ]] && pass "the install warns about the unregistered hooks" || fail "no unregistered-hooks warning"
+[[ "$F2_LOG" == *"quality-gate.sh"* ]] && pass "and names them" || fail "the hooks aren't named"
+if ( cd "$F2" && bash ./scripts/doctor.sh >"$F2/.doctor.log" 2>&1 ); then
+  fail "doctor passed a project whose settings.json wires no kit hook"
+else
+  pass "doctor fails it"
+fi
+[[ "$(strip_log "$F2/.doctor.log")" == *"quality-gate.sh"* ]] && pass "and names the hook" || fail "doctor doesn't name the hook"
+# A kit-written settings.json with one hook removed only warns.
+F2B="$XTMP/f2b"; fresh "$F2B"
+python3 - "$F2B/.claude/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+for ev, groups in d["hooks"].items():
+    for g in groups:
+        g["hooks"] = [h for h in g["hooks"] if "secret-scan.sh" not in h.get("command", "")]
+json.dump(d, open(p, "w"), indent=2)
+PY
+( cd "$F2B" && bash ./scripts/doctor.sh >"$F2B/.doctor.log" 2>&1 ) && pass "a kit-written settings.json missing a hook doesn't fail doctor" \
+  || { fail "doctor failed a kit-written settings.json"; grep -i 'fail\|✗' "$F2B/.doctor.log" | head -3; }
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

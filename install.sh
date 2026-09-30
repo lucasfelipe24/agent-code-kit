@@ -550,6 +550,7 @@ copy_if_new() {
 #   anything else                    → the project's: untouched, unlisted, reported
 # The manifest and the record then name only what the kit owns (N1).
 INIT_INSTALLED=0
+SETTINGS_KEPT=false
 INIT_KEPT=()
 INSTALL_OURS=false
 
@@ -1726,6 +1727,7 @@ elif [ "$UPGRADE" = true ]; then
   warn "Kept .claude/settings.json (not auto-merged — review new hooks manually)"
 else
   warn "Skipped .claude/settings.json (already exists)"
+  SETTINGS_KEPT=true
 fi
 
 # Copy the MCP allowlist template (mcp-gate.sh is inert until the real file exists)
@@ -1903,6 +1905,32 @@ if [ "$GITIGNORE" = true ]; then
       fi
     } >> "$GITIGNORE_FILE"
     ok "Added kit files to .gitignore (kit stays local, won't be pushed)"
+  fi
+fi
+
+# unregistered_hooks — the kit hooks of the installed profile that neither
+# .claude/settings.json nor settings.local.json registers, one per line. Plain shell
+# (no python3), so the warning below works on any box.
+unregistered_hooks() {
+  local kit_settings="$CLONE_DIR/.claude/settings.json" have h
+  [ "$PROFILE" = strict ] && kit_settings="$CLONE_DIR/.claude/settings.strict.json"
+  have=$(cat "$DEST/.claude/settings.json" "$DEST/.claude/settings.local.json" 2>/dev/null || true)
+  while IFS= read -r h; do
+    [ -f "$DEST/$h" ] || continue
+    [[ "$have" == *"$h"* ]] || echo "$h"
+  done < <(grep -o '\.claude/hooks/[A-Za-z0-9_./-]*\.sh' "$kit_settings" 2>/dev/null | LC_ALL=C sort -u)
+  return 0
+}
+
+if [ "$UPGRADE" != true ] && [ "$SETTINGS_KEPT" = true ]; then
+  UNREG=$(unregistered_hooks)
+  if [ -n "$UNREG" ]; then
+    echo ""
+    warn "Your .claude/settings.json was kept, and it registers none of these kit hooks ($(printf '%s\n' "$UNREG" | wc -l | tr -d ' ')):"
+    printf '%s\n' "$UNREG" | sed 's/^/       - /'
+    echo "       The kit's safety hooks and gates won't run until you add them from the kit's"
+    echo "       .claude/settings.json (a later release merges this automatically)."
+    echo "       Then run ./scripts/doctor.sh to check the wiring."
   fi
 fi
 
