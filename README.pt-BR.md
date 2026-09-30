@@ -23,6 +23,9 @@
   <a href="LICENSE">
     <img alt="Licença: MIT" src="https://img.shields.io/github/license/lucasfelipe24/agent-code-kit">
   </a>
+  <a href="https://lucasfelipe24.github.io/agent-code-kit/pt-BR/">
+    <img alt="Documentação" src="https://img.shields.io/badge/docs-site-blue">
+  </a>
   <a href="README.md">
     <img alt="Read in English" src="https://img.shields.io/badge/lang-en-blue">
   </a>
