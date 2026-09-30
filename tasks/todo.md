@@ -698,6 +698,8 @@ Nothing yet since 1.23.0 — everything earlier is in `CHANGELOG.md`.
 
 Parked scope — deferred work, revisit when prioritized. (CLAUDE.md → Scope Discipline routes out-of-scope items here.)
 
+- **Uninstall leftovers from the PR A review (R1)** — `kit_leftover` is still a second, simpler classifier next to `ack_owner`; the kept-`settings.json` warning doesn't name the hook entries; `VERSION` is always removed; `CLAUDE.md.kit-new` is never swept; the `tasks/` empty-dir pass also removes the project's own empty folders. _(deferred from the PR A adversarial review)_
+
 - **Multi-language test-runner detection** beyond Python/Node/Go/Rust (Ruby, Java, etc.) — the quality gate detects a fixed runner set today. _(deferred from the hook-shift work)_
 - **HTTP/MCP-style hook handlers** — advanced handler types beyond the file-command hook model; flagged as out of scope. _(deferred from the hook-shift work)_
 - **Cross-tool hook adapter** — port the deterministic hook layer to Cursor/Codex/Devin formats. Tracked separately because hooks don't port cleanly (see the `convert.sh codex` note: discipline survives as AGENTS.md rules, enforcement stays Claude-Code-only). _(deferred from the hook-shift work)_
