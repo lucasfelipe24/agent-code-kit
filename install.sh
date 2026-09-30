@@ -1227,14 +1227,17 @@ else
       echo "       - $f"
     done
     echo ""
-    if [ ! -e /dev/tty ]; then
-      error "Non-interactive environment detected. Use --upgrade to skip confirmation."
-    fi
-    read -p "  Continue? (y/N) " -n 1 -r < /dev/tty
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      info "Cancelled."
-      exit 0
+    # A terminal is something /dev/tty can be opened on; the file existing proves
+    # nothing (a CI job or a detached process has the file and no terminal).
+    if ! { : < /dev/tty; } 2>/dev/null; then
+      info "No terminal — continuing: existing files are kept, never overwritten"
+    else
+      read -p "  Continue? (y/N) " -n 1 -r < /dev/tty
+      echo ""
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        info "Cancelled."
+        exit 0
+      fi
     fi
   fi
 fi

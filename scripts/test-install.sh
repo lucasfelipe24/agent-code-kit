@@ -1406,6 +1406,23 @@ grep -v "$(printf '\t')VERSION\$" "$P/.kit-baseline" > "$P/.kb" && mv "$P/.kb" "
 kit "$P" .up.log --upgrade
 [ "$(cat "$P/VERSION")" = "9.0.0 # x-release-please-version" ] && pass "a newer release-please VERSION is left alone" || fail "it was overwritten"
 
+# --- S9: F7 — no terminal, existing CLAUDE.md ----------------------------------
+echo "== install with an existing CLAUDE.md and no terminal keeps going =="
+if command -v python3 >/dev/null 2>&1; then
+  NT="$XTMP/no-tty"; mkdir -p "$NT"
+  echo '{"name":"nt","version":"1.0.0"}' > "$NT/package.json"; echo "# my rules" > "$NT/CLAUDE.md"
+  ( cd "$NT" && python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$NT/.install.log" 2>&1 < /dev/null )
+  NT_RC=$?
+  [ "$NT_RC" -eq 0 ] && pass "install without a terminal exits 0" || { fail "install without a terminal exited $NT_RC"; tail -4 "$NT/.install.log"; }
+  [ "$(cat "$NT/CLAUDE.md")" = "# my rules" ] && pass "the existing CLAUDE.md is untouched" || fail "CLAUDE.md was changed"
+  [ -f "$NT/.claude/hooks/quality-gate.sh" ] && pass "the kit was installed" || fail "the kit wasn't installed"
+  [[ "$(strip_log "$NT/.install.log")" == *"No terminal"* ]] && pass "the log says it continued without a terminal" || fail "no 'No terminal' line"
+  [[ "$(strip_log "$NT/.install.log")" == *"CLAUDE.md"* ]] && pass "and names the kept CLAUDE.md" || fail "the log doesn't name CLAUDE.md"
+else
+  echo "  - skipped: no python3 to detach the terminal"
+fi
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"
