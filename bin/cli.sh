@@ -40,7 +40,7 @@ Init options:
 Uninstall options:
   --dry-run              List what would be removed and kept; change nothing
   --keep-tasks           Keep tasks/ (plan, decisions, lessons, handoffs)
-  --keep-project         Keep your overlay (CLAUDE.project.md, agent_docs/project/, .claude/hooks/project/)
+  --keep-project         Accepted and ignored: what you wrote in your overlay is never removed
   --force                Skip the confirmation prompt
 
 Examples:

@@ -1481,6 +1481,40 @@ kit "$A2" .up.log --upgrade
 [ "$(cat "$A2/reports/.gitignore")" = "*.pdf" ] && [ -f "$A2/reports/q3.txt" ] && pass "a project's own reports/ files are untouched" || fail "a project's own reports/ was changed"
 [ ! -e "$A2/reports/session-audit.log" ] && [ -f "$A2/.hook-state/session-audit.log" ] && pass "only the log moved" || fail "the log did not move"
 
+# --- R2 PR A: uninstall keeps what the project put in the kit's folders ---------
+echo "== uninstall keeps an edited overlay and the project's files in project/ folders =="
+OV="$XTMP/ov-edited"; fresh "$OV"
+echo "- my project rule" >> "$OV/CLAUDE.project.md"
+echo "# mission" > "$OV/agent_docs/project/mission.md"
+echo "echo mine" > "$OV/.claude/hooks/project/x.sh"
+OV_BEFORE=$(cd "$OV" && cksum CLAUDE.project.md agent_docs/project/mission.md .claude/hooks/project/x.sh)
+( cd "$OV" && bash "$KIT_ROOT/uninstall.sh" --force >"$OV/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || { fail "uninstall errored"; tail -5 "$OV/.uninstall.log"; }
+[ "$OV_BEFORE" = "$(cd "$OV" && cksum CLAUDE.project.md agent_docs/project/mission.md .claude/hooks/project/x.sh 2>&1)" ] \
+  && pass "the edited overlay and both project/ files are byte-identical" || fail "an overlay file was changed or removed"
+OV2="$XTMP/ov-pristine"; fresh "$OV2"
+( cd "$OV2" && bash "$KIT_ROOT/uninstall.sh" --force >"$OV2/.uninstall.log" 2>&1 )
+for f in CLAUDE.project.md agent_docs/project .claude/hooks/project agent_docs .claude/hooks; do
+  [ ! -e "$OV2/$f" ] && pass "the untouched $f is gone" || fail "the untouched $f was left"
+done
+OV3="$XTMP/ov-keep-flag"; fresh "$OV3"
+( cd "$OV3" && bash "$KIT_ROOT/uninstall.sh" --force --keep-project >"$OV3/.uninstall.log" 2>&1 ) && pass "--keep-project is still accepted" || fail "--keep-project errored"
+
+echo "== uninstall keeps module data: wiki pages, raw sources and artifacts =="
+MD="$XTMP/mod-data"; fresh "$MD" --wiki --html
+echo "# page" > "$MD/wiki/summaries/a.md"; echo "paper" > "$MD/raw-sources/paper.txt"; echo "<html>" > "$MD/artifacts/report.html"
+( cd "$MD" && bash "$KIT_ROOT/uninstall.sh" --force >"$MD/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || { fail "uninstall errored"; tail -5 "$MD/.uninstall.log"; }
+for f in wiki/summaries/a.md raw-sources/paper.txt artifacts/report.html; do
+  [ -f "$MD/$f" ] && pass "kept $f" || fail "removed $f"
+done
+for f in wiki/index.md wiki/log.md artifacts/index.html artifacts/design-system.html WIKI.md ARTIFACTS.md; do
+  [ ! -e "$MD/$f" ] && pass "removed the untouched seed $f" || fail "left the untouched seed $f"
+done
+MD2="$XTMP/mod-edited"; fresh "$MD2" --wiki --html
+echo "my notes" >> "$MD2/wiki/index.md"; echo "<!-- mine -->" >> "$MD2/artifacts/design-system.html"
+( cd "$MD2" && bash "$KIT_ROOT/uninstall.sh" --force >"$MD2/.uninstall.log" 2>&1 )
+grep -q "my notes" "$MD2/wiki/index.md" 2>/dev/null && grep -q "<!-- mine -->" "$MD2/artifacts/design-system.html" 2>/dev/null \
+  && pass "an edited wiki index and design system stay" || fail "an edited seed file was removed"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"
