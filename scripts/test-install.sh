@@ -478,12 +478,19 @@ if ! ( cd "$TMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$TMP/.uninstall.log"
   fail "uninstall.sh errored"; tail -8 "$TMP/.uninstall.log"
 fi
 assert_absent "$TMP/CLAUDE.md"
-assert_absent "$TMP/.claude/hooks"
 assert_absent "$TMP/.kit-manifest"
 assert_absent "$TMP/.kit-baseline"
-# The manifest backstop sweeps kit files the path-based detection misses (e.g.
-# .claude/*.example), so .claude/ is left fully clean — no orphaned kit files.
-assert_absent "$TMP/.claude"
+# The upgrade tests above edited secret-scan.sh, branch-protect.sh and
+# settings.json on purpose, and uninstall keeps a kit file edited since the
+# install (F9). Everything else the kit wrote is gone: the manifest backstop
+# sweeps what the path-based detection misses (e.g. .claude/*.example).
+KEPT_HOOKS=$(cd "$TMP/.claude/hooks" 2>/dev/null && ls -1 | tr '\n' ' ')
+[ "$KEPT_HOOKS" = "branch-protect.sh secret-scan.sh " ] && pass "only the two hooks edited since the install remain" \
+  || fail "hooks left after uninstall: ${KEPT_HOOKS:-none}"
+assert_file "$TMP/.claude/settings.json"
+assert_absent "$TMP/.claude/mcp-allowlist.txt.example"
+assert_absent "$TMP/.claude/skills"
+assert_absent "$TMP/.claude/agents"
 # the user's own file must survive
 assert_file "$TMP/package.json"
 
@@ -531,8 +538,8 @@ else
   fail "uninstall errored"; tail -8 "$UTMP/.uninstall.log"
 fi
 UNINSTALL_LOG=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$UTMP/.uninstall.log")
-[[ "$UNINSTALL_LOG" == *"tasks/ (contains your data!)"* ]] && pass "an edited tasks/todo.md is flagged as your data" \
-  || fail "an edited tasks/todo.md isn't flagged as your data"
+[[ "$UNINSTALL_LOG" == *"✓ tasks/todo.md"* ]] && pass "an edited tasks/todo.md is listed as kept" \
+  || fail "an edited tasks/todo.md isn't listed as kept"
 for f in $OWN_FILES CLAUDE.md CODEBASE_MAP.md package.json scripts/old-kit-script.sh; do
   [ -f "$UTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
 done
@@ -541,6 +548,135 @@ for f in scripts/doctor.sh agent_docs/workflow.md .claude/hooks/quality-gate.sh 
          .claude/settings.json .kit-manifest .kit-baseline; do
   [ ! -e "$UTMP/$f" ] && pass "removed the kit's $f" || fail "left the kit's $f"
 done
+
+# --- F4: tasks/ may be a Python package, a task queue's folder ----------------
+echo "== uninstall never removes tasks/ as a whole =="
+TTMP="$XTMP/tasks-own"
+mkdir -p "$TTMP"
+echo '{"name":"tasks-own","version":"1.0.0"}' > "$TTMP/package.json"
+( cd "$TTMP" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$TTMP/.install.log" 2>&1 ) \
+  || { fail "install for the tasks/ check failed"; tail -8 "$TTMP/.install.log"; }
+echo "# the project's own worker" > "$TTMP/tasks/celery.py"
+mkdir -p "$TTMP/tasks/jobs"
+echo "# the project's own job" > "$TTMP/tasks/jobs/nightly.py"
+echo "- [ ] the project's own task" >> "$TTMP/tasks/todo.md"
+( cd "$TTMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$TTMP/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$TTMP/.uninstall.log"; }
+for f in tasks/celery.py tasks/jobs/nightly.py tasks/todo.md; do
+  [ -f "$TTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
+done
+for f in tasks/decisions.md tasks/handoff.md tasks/lessons/_index.md tasks/lessons/_TEMPLATE.md; do
+  [ ! -e "$TTMP/$f" ] && pass "removed the untouched scaffold $f" || fail "left the untouched scaffold $f"
+done
+[ ! -d "$TTMP/tasks/lessons" ] && pass "removed the emptied tasks/lessons/" || fail "left an empty tasks/lessons/"
+
+# --- S4: an install from before .kit-baseline -------------------------------
+echo "== uninstall with no install record saves before it removes =="
+NTMP="$XTMP/no-record"
+mkdir -p "$NTMP" "$NTMP/elsewhere"
+echo '{"name":"no-record","version":"1.0.0"}' > "$NTMP/package.json"
+( cd "$NTMP" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$NTMP/.install.log" 2>&1 ) \
+  || { fail "install for the no-record check failed"; tail -8 "$NTMP/.install.log"; }
+rm -f "$NTMP/.kit-baseline"
+echo "# the target of a link" > "$NTMP/elsewhere/target.md"
+rm -rf "$NTMP/.claude/skills/debug"
+ln -s ../../elsewhere "$NTMP/.claude/skills/debug"
+( cd "$NTMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$NTMP/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$NTMP/.uninstall.log"; }
+NB=$(find "$NTMP/.kit-backup" -mindepth 1 -maxdepth 1 -type d | head -1)
+[ -n "$NB" ] && pass "a .kit-backup/ stamp exists" || fail "no .kit-backup/ stamp"
+[ -f "$NB/.claude/hooks/quality-gate.sh" ] && pass "a removed kit hook was saved first" || fail "the hook wasn't saved"
+[ -f "$NB/CLAUDE.md" ] && pass "CLAUDE.md was saved first" || fail "CLAUDE.md wasn't saved"
+[ -L "$NB/.claude/skills/debug" ] && pass "a link was saved as a link" || fail "the link wasn't saved as a link"
+[ -f "$NTMP/elsewhere/target.md" ] && pass "the link target is untouched" || fail "the link target was touched"
+[ ! -e "$NTMP/.claude/hooks/quality-gate.sh" ] && pass "the kit hook is gone from the project" || fail "the kit hook is still there"
+# A CLAUDE.md without the kit's Session Boot is the project's.
+NTMP2="$XTMP/no-record-own"
+mkdir -p "$NTMP2"
+echo '{"name":"no-record-own","version":"1.0.0"}' > "$NTMP2/package.json"
+( cd "$NTMP2" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$NTMP2/.install.log" 2>&1 )
+rm -f "$NTMP2/.kit-baseline"
+echo "# the project's own rules" > "$NTMP2/CLAUDE.md"
+( cd "$NTMP2" && bash "$KIT_ROOT/uninstall.sh" --force >"$NTMP2/.uninstall.log" 2>&1 )
+[ -f "$NTMP2/CLAUDE.md" ] && grep -q "own rules" "$NTMP2/CLAUDE.md" && pass "a CLAUDE.md without Session Boot stays" \
+  || fail "a CLAUDE.md without Session Boot was removed"
+
+# --- a project the kit never entered (an install that aborted before writing) --
+echo "== uninstall leaves a project the kit never entered alone =="
+VTMP="$XTMP/never-entered"
+mkdir -p "$VTMP/scripts" "$VTMP/agent_docs" "$VTMP/.claude/hooks" "$VTMP/.claude/agents" "$VTMP/.claude/skills/mine" \
+         "$VTMP/wiki/pages" "$VTMP/artifacts" "$VTMP/raw-sources"
+echo '{"name":"never-entered","version":"1.0.0"}' > "$VTMP/package.json"
+NE_FILES="scripts/deploy.sh agent_docs/runbook.md .claude/hooks/mine.sh .claude/agents/mine.md .claude/skills/mine/SKILL.md wiki/pages/a.md artifacts/report.html raw-sources/paper.txt"
+for f in $NE_FILES; do echo "# the project's own" > "$VTMP/$f"; done
+( cd "$VTMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$VTMP/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$VTMP/.uninstall.log"; }
+for f in $NE_FILES; do
+  [ -f "$VTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
+done
+
+# --- review findings on PR A ---------------------------------------------------
+echo "== uninstall: modules, a missing manifest, links, odd names, curl =="
+inst() {  # <dir> [install flags] — a fresh install into <dir>
+  local d="$1"; shift
+  mkdir -p "$d"; echo '{"name":"t","version":"1.0.0"}' > "$d/package.json"
+  ( cd "$d" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" "$@" >"$d/.install.log" 2>&1 ) \
+    || { fail "install into $d failed"; tail -6 "$d/.install.log"; }
+}
+uninst() { ( cd "$1" && bash "$KIT_ROOT/uninstall.sh" --force >"$1/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -6 "$1/.uninstall.log"; }; }
+
+# The optional modules go with a round trip.
+MTMP="$XTMP/modules"; inst "$MTMP" --wiki --html; uninst "$MTMP"
+for f in WIKI.md ARTIFACTS.md wiki artifacts raw-sources; do
+  [ ! -e "$MTMP/$f" ] && pass "the kit's $f is gone" || fail "the kit's $f was left"
+done
+grep -q 'command not found' "$MTMP/.uninstall.log" && fail "uninstall calls a function before defining it" || pass "no undefined function"
+
+# A wiki/ or artifacts/ the kit never installed is the project's.
+OTMP="$XTMP/own-modules"; inst "$OTMP"
+mkdir -p "$OTMP/wiki" "$OTMP/artifacts"; echo x > "$OTMP/wiki/Home.md"; echo x > "$OTMP/artifacts/app.tar"
+uninst "$OTMP"
+[ -f "$OTMP/wiki/Home.md" ] && [ -f "$OTMP/artifacts/app.tar" ] && pass "a project's own wiki/ and artifacts/ stay" \
+  || fail "a project's own wiki/ or artifacts/ was removed"
+
+# The manifest is gone but the record is there: the record decides, file by file.
+RTMP="$XTMP/no-manifest"; inst "$RTMP"; rm -f "$RTMP/.kit-manifest"
+echo x > "$RTMP/scripts/mine.sh"; echo x > "$RTMP/.claude/hooks/myhook.sh"; echo x > "$RTMP/agent_docs/mynotes.md"
+uninst "$RTMP"
+for f in scripts/mine.sh .claude/hooks/myhook.sh agent_docs/mynotes.md; do
+  [ -f "$RTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
+done
+[ ! -e "$RTMP/scripts/doctor.sh" ] && [ ! -e "$RTMP/.kit-baseline" ] && pass "the kit's files and its record are gone" \
+  || fail "the kit's files or record were left"
+
+# A linked folder is taken as a link; what it points at is never touched.
+LTMP="$XTMP/links"; inst "$LTMP"
+mkdir -p "$LTMP/../shared-proj" "$LTMP/../shared-scripts"
+echo x > "$LTMP/../shared-proj/team-rules.md"; echo x > "$LTMP/../shared-scripts/precious.sh"
+rm -rf "$LTMP/agent_docs/project"; ln -s ../../shared-proj "$LTMP/agent_docs/project"
+uninst "$LTMP"
+[ -f "$XTMP/shared-proj/team-rules.md" ] && pass "a linked agent_docs/project target is untouched" || fail "a linked agent_docs/project target was wiped"
+LTMP2="$XTMP/links-norecord"; inst "$LTMP2"; rm -f "$LTMP2/.kit-baseline"
+rm -rf "$LTMP2/scripts"; ln -s ../shared-scripts "$LTMP2/scripts"
+uninst "$LTMP2"
+[ -f "$XTMP/shared-scripts/precious.sh" ] && pass "a linked scripts/ target is untouched (no record)" || fail "a linked scripts/ target was wiped"
+
+# The backup covers names with spaces.
+BTMP="$XTMP/spaces"; inst "$BTMP"; rm -f "$BTMP/.kit-baseline"
+mkdir -p "$BTMP/.claude/skills/my skill"; echo x > "$BTMP/.claude/skills/my skill/SKILL.md"
+printf '%s\n' ".claude/skills/my skill" >> "$BTMP/.kit-manifest"
+uninst "$BTMP"
+BS=$(find "$BTMP/.kit-backup" -mindepth 1 -maxdepth 1 -type d | head -1)
+[ -f "$BS/.claude/skills/my skill/SKILL.md" ] && pass "a name with a space was saved before removal" || fail "a name with a space wasn't saved"
+
+# curl | bash has no script path.
+CTMP="$XTMP/curl"; inst "$CTMP"
+if ( cd "$CTMP" && cat "$KIT_ROOT/uninstall.sh" | bash -s -- --dry-run >"$CTMP/.curl.log" 2>&1 ); then
+  pass "uninstall piped through bash runs"
+else
+  fail "uninstall piped through bash errored"; tail -4 "$CTMP/.curl.log"
+fi
 
 # --- strict profile: install path is otherwise never exercised ----------------
 echo "== strict profile install =="
@@ -938,6 +1074,152 @@ echo '{"name":"front","version":"1.0.0"}' > "$P/package.json"
 fresh "$P"
 cmp -s "$KIT_ROOT/examples/node-api/CLAUDE.md" "$P/CLAUDE.md" && pass "a root package.json still wins over a nested .csproj" \
   || fail "a nested .csproj overrode the root package.json"
+
+echo "== ownership classifier =="
+# ack_owner reports what .kit-baseline says about a path; install, upgrade and
+# uninstall each apply their own policy to the answer. The block lives in three
+# files because uninstall.sh and doctor.sh run standalone and cannot source lib/.
+ack_block() { sed -n '/^# >>> ack-ownership$/,/^# <<< ack-ownership$/p' "$1"; }
+ack_block "$KIT_ROOT/scripts/lib/manifest.sh" > "$XTMP/ack.lib"
+ack_block "$KIT_ROOT/uninstall.sh" > "$XTMP/ack.uninstall"
+ack_block "$KIT_ROOT/scripts/doctor.sh" > "$XTMP/ack.doctor"
+[ -s "$XTMP/ack.lib" ] && pass "manifest.sh carries the ownership block" || fail "no ownership block in scripts/lib/manifest.sh"
+cmp -s "$XTMP/ack.lib" "$XTMP/ack.uninstall" && pass "uninstall.sh's copy is identical" || fail "uninstall.sh's ownership block differs from scripts/lib/manifest.sh"
+cmp -s "$XTMP/ack.lib" "$XTMP/ack.doctor" && pass "doctor.sh's copy is identical" || fail "scripts/doctor.sh's ownership block differs from scripts/lib/manifest.sh"
+
+# owner_is <label> <want> <dest> <rel> — one classifier answer.
+owner_is() {
+  local got
+  got=$(ack_owner "$3" "$4")
+  [ "$got" = "$2" ] && pass "$1 → $2" || fail "$1: expected $2, got $got"
+}
+P="$XTMP/own"
+fresh "$P"
+owner_is "an untouched kit hook" kit "$P" .claude/hooks/protect-files.sh
+owner_is "nothing there" absent "$P" .claude/hooks/never-shipped.sh
+cp "$P/.claude/hooks/protect-files.sh" "$XTMP/protect-files.orig"
+echo '# my edit' >> "$P/.claude/hooks/protect-files.sh"
+owner_is "a kit hook edited since the install" kit-edited "$P" .claude/hooks/protect-files.sh
+mv "$XTMP/protect-files.orig" "$P/.claude/hooks/protect-files.sh"
+echo 'mine' > "$P/.claude/agents/my-agent.md"
+owner_is "the project's own agent beside the kit's" unrecorded "$P" .claude/agents/my-agent.md
+mkdir -p "$P/.claude/skills/debug-copy"
+printf '%s\t%s\n' "$(hash_of "$P/CLAUDE.md")" .claude/skills/debug-copy >> "$P/.kit-baseline"
+owner_is "a directory the record lists as a path" unverified "$P" .claude/skills/debug-copy
+ln -s ../../CLAUDE.md "$P/.claude/agents/link.md"
+printf '%s\t%s\n' "$(hash_of "$P/CLAUDE.md")" .claude/agents/link.md >> "$P/.kit-baseline"
+owner_is "a recorded link to a file" kit "$P" .claude/agents/link.md
+ln -s nowhere "$P/.claude/agents/dangling.md"
+owner_is "an unrecorded dangling link" unrecorded "$P" .claude/agents/dangling.md
+printf '%s\t%s\n' "$(hash_of "$P/CLAUDE.md")" .claude/agents/dangling.md >> "$P/.kit-baseline"
+owner_is "a recorded dangling link" unverified "$P" .claude/agents/dangling.md
+printf '#template\tfoo\n' >> "$P/.kit-baseline"
+echo 'mine' > "$P/foo"
+owner_is "a # header line never names a file" unrecorded "$P" foo
+sed 's/$/\r/' "$P/.kit-baseline" > "$XTMP/own.crlf" && cp "$XTMP/own.crlf" "$P/.kit-baseline"
+owner_is "a record written with CRLF" kit "$P" .claude/hooks/protect-files.sh
+if ( PATH="$SHIM" ack_owner "$P" .claude/hooks/protect-files.sh >"$XTMP/own.nohash" ); then
+  [ "$(cat "$XTMP/own.nohash")" = unverified ] && pass "no hash tool → unverified" || fail "no hash tool: expected unverified, got $(cat "$XTMP/own.nohash")"
+else
+  fail "ack_owner failed without a hash tool"
+fi
+
+# The realistic case: a project that already had its own agent at a kit path.
+P="$XTMP/own-brownfield"
+mkdir -p "$P/.claude/agents" && echo 'mine' > "$P/.claude/agents/code-reviewer.md"
+kit "$P" .install.log
+owner_is "the project's code-reviewer.md under a real install's record" unrecorded "$P" .claude/agents/code-reviewer.md
+rm "$P/.kit-baseline"
+owner_is "the same install with .kit-baseline removed" no-record "$P" .claude/agents/code-reviewer.md
+printf '#template\tnode-api\n' > "$P/.kit-baseline"
+owner_is "a record holding only #template" no-record "$P" .claude/agents/code-reviewer.md
+
+P="$XTMP/own-flags"
+fresh "$P"
+ack_record_complete "$P" && fail "a fresh record reads as complete before anything marks it" || pass "a record without #complete is not complete"
+printf '#complete\t1\n' >> "$P/.kit-baseline"
+ack_record_complete "$P" && pass "#complete marks the record" || fail "#complete was not read"
+sed 's/$/\r/' "$P/.kit-baseline" > "$XTMP/flags.crlf" && cp "$XTMP/flags.crlf" "$P/.kit-baseline"
+ack_record_complete "$P" && pass "#complete is read from a CRLF record" || fail "#complete lost to CRLF"
+ack_prior_install "$P" && pass "a project with a record is a prior install" || fail "a recorded project reads as first install"
+P="$XTMP/own-empty"; mkdir -p "$P"
+ack_prior_install "$P" && fail "an empty project reads as a prior install" || pass "an empty project is a first install"
+printf '# My rules\n' > "$P/CLAUDE.md"
+ack_prior_install "$P" && fail "a plain CLAUDE.md reads as a prior install" || pass "a CLAUDE.md without the kit's Session Boot is not"
+printf '# CLAUDE.md\n\n## Session Boot\n' > "$P/CLAUDE.md"
+ack_prior_install "$P" && pass "a CLAUDE.md with Session Boot is a prior install" || fail "Session Boot not recognised"
+
+echo "== the premise: a fresh install records every file it writes into a shared folder =="
+# Ownership reads absence from the record as "the project's". That only holds if
+# the installer records everything it copies, in every profile and module. The
+# check does not use the classifier, so it can fail on its own.
+premise_unrecorded() {
+  local proj="$1" f
+  ( cd "$proj" && find agent_docs scripts .claude/hooks .claude/agents .claude/skills .claude/extensions \
+      .claude/settings.json .claude/mcp-allowlist.txt.example .claude/commands.json.example WIKI.md ARTIFACTS.md \
+      -type f 2>/dev/null | grep -v '/project/' | LC_ALL=C sort ) | while IFS= read -r f; do
+    LC_ALL=C awk -F'\t' -v p="$f" '!/^#/ && $2 == p { found = 1 } END { exit found ? 0 : 1 }' "$proj/.kit-baseline" || echo "$f"
+  done
+}
+for spec in "standard:" "minimal:--profile minimal" "strict:--profile strict" "modules:--wiki --html"; do
+  name=${spec%%:*}; args=${spec#*:}
+  P="$XTMP/premise-$name"
+  # shellcheck disable=SC2086
+  fresh "$P" $args
+  missing=$(premise_unrecorded "$P")
+  [ -z "$missing" ] && pass "$name install: every shared-folder file is in the record" \
+    || fail "$name install left files out of the record: $(echo $missing)"
+done
+
+echo "== uninstall keeps what the record doesn't list (N1) =="
+# init skips .claude/hooks, agents, skills and settings.json when they exist, but
+# v1.23.0 still writes the project's own files into .kit-manifest. Uninstall must
+# not read that as "the kit installed these": the project comes back as it was.
+strip_ansi() { sed "s/$(printf '\033')\[[0-9;]*m//g"; }
+P="$XTMP/un-brownfield"
+mkdir -p "$P/.claude/hooks" "$P/.claude/agents" "$P/.claude/skills/my-skill"
+printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$P/.claude/hooks/my-hook.sh"
+echo 'mine' > "$P/.claude/agents/my-agent.md"
+echo 'mine' > "$P/.claude/skills/my-skill/SKILL.md"
+echo 'mine' > "$P/.claude/settings.local.json"
+BEFORE=$(snap "$P")
+kit "$P" .install.log
+for f in .claude/settings.json .claude/hooks/my-hook.sh .claude/agents/my-agent.md .claude/skills/my-skill; do
+  grep -qxF "$f" "$P/.kit-manifest" || echo "$f" >> "$P/.kit-manifest"   # as v1.23.0 wrote them
+done
+PREVIEW=$( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --dry-run 2>&1 | strip_ansi )
+for f in .claude/settings.json .claude/hooks/my-hook.sh .claude/agents/my-agent.md .claude/skills/my-skill; do
+  case "$PREVIEW" in *"✕ $f"*) fail "--dry-run lists the project's $f for removal" ;; *) pass "--dry-run leaves $f alone" ;; esac
+done
+case "$PREVIEW" in *"will also remove empty .claude/"*) fail "--dry-run announces removing a .claude/ that holds project files" ;; *) pass "--dry-run keeps .claude/" ;; esac
+( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$P/.uninstall.log"; }
+AFTER=$(snap "$P")
+[ "$BEFORE" = "$AFTER" ] && pass "every file is back as it was before the install (nothing lost, nothing left)" \
+  || fail "the project differs after install + uninstall: $(diff <(echo "$BEFORE") <(echo "$AFTER") | head -6 | tr '\n' ' ')"
+UN_TEXT=$(strip_ansi < "$P/.uninstall.log")
+grep -qE 'removed [0-9]+ · kept [0-9]+ \(edited [0-9]+, yours [0-9]+, unverified [0-9]+\)' <<< "$UN_TEXT" \
+  && pass "uninstall ends with removed / kept counts" || fail "no removed / kept summary line"
+
+echo "== uninstall keeps a kit file edited since the install (F9) =="
+P="$XTMP/un-edited"
+fresh "$P"
+echo '# my own rule' >> "$P/CLAUDE.md"
+echo ' ' >> "$P/.claude/settings.json"
+( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || fail "uninstall errored"
+grep -q '# my own rule' "$P/CLAUDE.md" 2>/dev/null && pass "an edited CLAUDE.md survives" || fail "an edited CLAUDE.md was removed"
+assert_file "$P/.claude/settings.json"
+assert_absent "$P/.claude/hooks/protect-files.sh"
+UN_TEXT=$(strip_ansi < "$P/.uninstall.log")
+grep -q 'edited' <<< "$UN_TEXT" && pass "the log says what was kept as edited" || fail "no mention of the kept edited files"
+grep -qE 'settings.json.*(hook|register)' <<< "$UN_TEXT" \
+  && pass "a kept settings.json is flagged: it still registers hooks that were removed" || fail "no warning about the kept settings.json"
+
+echo "== uninstall never touches settings.json in a project the kit never entered =="
+P="$XTMP/un-never"
+mkdir -p "$P/.claude" && printf '{"permissions":{}}\n' > "$P/.claude/settings.json"
+( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || fail "uninstall errored"
+assert_file "$P/.claude/settings.json"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then

@@ -387,9 +387,9 @@ npx @lucasfelipe23/agent-code-kit uninstall --dry-run   # lista o que seria remo
 npx @lucasfelipe23/agent-code-kit uninstall             # remove, depois que você confirmar
 ```
 
-Só os arquivos do kit são removidos. Os arquivos que você adicionou em pastas compartilhadas como `scripts/` ou `.claude/skills/` ficam, assim como o `CODEBASE_MAP.md` depois que você o preenche. `tasks/` e o seu overlay (`CLAUDE.project.md` e as pastas `project/`) são removidos por padrão — o desinstalador avisa quando `tasks/` contém trabalho seu —, então mantenha-os com `--keep-tasks` e `--keep-project`.
+Só são removidos os arquivos que o registro da instalação (`.kit-baseline`) lista e que você não editou desde então. Um arquivo do kit que você alterou fica, listado como mantido, e o mesmo vale para um arquivo que o registro não lista, mesmo que o `.kit-manifest` o cite. Os arquivos que você adicionou em pastas compartilhadas como `scripts/` ou `.claude/skills/` ficam, assim como o `CODEBASE_MAP.md` depois que você o preenche. Dentro de `tasks/`, só saem os arquivos do scaffold que você não tocou; o que você editou ou adicionou fica, e a pasta também (um `tasks/` com código seu está seguro). O seu overlay (`CLAUDE.project.md` e as pastas `project/`) é removido por padrão, então mantenha-o com `--keep-project`; `--keep-tasks` mantém o `tasks/` inteiro.
 
-Instalou com curl? `curl -fsSL https://raw.githubusercontent.com/lucasfelipe24/agent-code-kit/main/uninstall.sh | bash -s -- --dry-run` funciona do mesmo jeito, só que não consegue comparar os arquivos com as cópias do próprio kit, então sempre mantém o `CODEBASE_MAP.md`.
+Instalou com curl? `curl -fsSL https://raw.githubusercontent.com/lucasfelipe24/agent-code-kit/main/uninstall.sh | bash -s -- --dry-run` funciona do mesmo jeito, só que não consegue comparar os arquivos com as cópias do próprio kit, então sempre mantém o `CODEBASE_MAP.md` e todos os arquivos de `tasks/`.
 
 ## 🔌 Outras ferramentas de IA
 
