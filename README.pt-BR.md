@@ -154,6 +154,154 @@ O kit adiciona quatro camadas ao seu projeto:
 
 Regras são conselhos. Hooks são imposição: rodam fora do modelo, em toda ação correspondente, quer ele se lembre da regra ou não.
 
+## 🎁 Funcionalidades
+
+Tudo o que o kit adiciona, e para que serve cada parte:
+
+| Funcionalidade | O que você recebe | Por que ajuda |
+|---|---|---|
+| [**Regras de trabalho**](#-as-regras) | `CLAUDE.md`: planejar primeiro, disciplina de escopo, mudanças protegidas, verificação, lições | O Claude trabalha do mesmo jeito em toda sessão, em qualquer máquina |
+| [**Guardrails**](#-guardrails) | 28 hooks — 23 ligados por padrão, 5 opcionais | As regras valem mesmo quando o modelo as esquece |
+| [**Automação da sessão**](#-uma-sessão-com-o-kit) | Contexto devolvido a cada início e depois de cada compactação; um handoff salvo no fim | Nada de reexplicar a tarefa depois de um `/clear` ou de uma compactação |
+| [**Fluxos de trabalho**](#-fluxos-de-trabalho) | Skills que se encadeiam da ideia até o pull request | Um caminho conhecido para features, bugs, revisões e releases |
+| [**Skills**](#-skills-e-agentes) | 37 comandos para planejamento, debugging, auditorias, revisões, releases e relatórios | Um processo repetível em vez de um prompt improvisado |
+| [**Subagentes**](#-skills-e-agentes) | 6 especialistas: revisão de código, segurança, QA, planejamento, revisão adversarial, código morto | Uma segunda opinião com um escopo estreito e contexto próprio |
+| [**Memória do projeto**](#arquivos-que-o-kit-escreve-enquanto-você-trabalha) | `tasks/`: plano, decisões, lições, handoffs, specs, revisões, relatórios | Decisões e correções sobrevivem à sessão e ficam no git junto com o código |
+| [**Guias**](#guias-e-comandos) | 12 guias em `agent_docs/`, lidos só quando a tarefa precisa | Orientação aprofundada sem pagar por ela em todo prompt |
+| [**Templates de stack**](#templates-de-stack) | 7 stacks, detectadas na instalação | Regras da stack e um mapa do projeto pré-preenchido desde o primeiro dia |
+| [**Módulos opcionais**](#módulos-opcionais) | Wiki de conhecimento, artefatos HTML, instalação só local | Adicione só o que usar |
+| [**Outras ferramentas de IA**](#-outras-ferramentas-de-ia) | Exportação para Cursor, Windsurf, Aider, Codex e `AGENTS.md` | Um conjunto de regras para todas as suas ferramentas |
+| [**Upgrades seguros**](#-upgrade) | Um registro de instalação por arquivo, prévias, cópias `.kit-new` e backups | O upgrade só atualiza arquivos do kit intactos; a desinstalação só remove o que o kit escreveu |
+| [**Testado**](#-rodar-os-testes) | Uma suíte de regressão rodada em Linux e macOS | Cada guardrail é verificado a cada mudança no kit |
+
+### Todos os hooks
+
+<details>
+<summary>Os 28 hooks, o que os dispara e o que fazem</summary>
+
+**Bloquear** — interrompem a ação e dizem ao Claude por quê
+
+| Hook | Roda | O que faz |
+|---|---|---|
+| `protect-files` | Antes de edições e de `git add` | Bloqueia arquivos `.env`, credenciais, chaves privadas e lock files — tanto editá-los quanto adicioná-los ao stage |
+| `protect-changes` | Antes de edições e de comandos no shell | Bloqueia manifestos de dependências, migrations, código de autenticação, workflows de CI e instalação de dependências até você aprovar |
+| `branch-protect` | Antes de comandos no shell | Bloqueia pushes para `main`/`master` e force pushes |
+| `block-dangerous-commands` | Antes de comandos no shell | Bloqueia `rm -rf /`, `git reset --hard`, `DROP TABLE` e similares |
+| `conventional-commit` | Antes de comandos no shell | Bloqueia mensagens de commit fora do padrão Conventional Commits |
+| `mcp-gate` | Antes de chamadas a ferramentas MCP | Bloqueia servidores MCP que não estão em `.claude/mcp-allowlist.txt` (desligado até você criá-lo) |
+| `stop-gate` | Quando o Claude tenta encerrar | Bloqueia enquanto a verificação de um arquivo editado estiver falhando, tiver estourado o tempo ou for mais antiga que o arquivo |
+| `loop-detect` | Depois de edições | Alerta quando o mesmo arquivo aparece 4 vezes entre as últimas 10 edições, e bloqueia na 6ª |
+
+**Verificar** — rodam depois de cada edição e informam o resultado
+
+| Hook | Roda | O que faz |
+|---|---|---|
+| `quality-gate` | Depois de edições | Roda o typecheck, o lint ou a checagem de sintaxe do arquivo e registra o resultado para o `stop-gate` |
+| `secret-scan` | Depois de edições | Alerta sobre segredos gravados num arquivo: API keys, tokens, chaves privadas, senhas |
+| `unicode-scan` | Depois de edições | Alerta sobre Unicode invisível que pode esconder código |
+
+**Contexto** — dão ao Claude a informação certa na hora certa
+
+| Hook | Roda | O que faz |
+|---|---|---|
+| `session-start` | No início da sessão e depois de uma compactação | Aponta para o mapa do projeto, as lições principais, a tarefa ativa e a branch; depois de uma compactação, também o contrato da tarefa e o journal do `/note` |
+| `prompt-router` | A cada prompt | Adiciona um lembrete das regras quando você menciona autenticação, cobrança, migrations, deploys ou dependências |
+| `glob-guidance` | Antes de edições | A primeira edição num arquivo de teste ou de migration traz as orientações para esse tipo de arquivo |
+| `bash-budget`, `read-budget` | Depois de comandos no shell e de leituras de arquivo | Alertam uma vez quando a saída da sessão passa de um orçamento de tokens |
+| `journal-fold` | No fim da sessão | Salva o journal do `/note` e o handoff entre subagentes em `tasks/handoff-<sessão>.md` |
+
+**Observar** — registram o que aconteceu, para o `/scorecard`
+
+| Hook | Roda | O que faz |
+|---|---|---|
+| `session-end` | No fim da sessão | Grava uma linha de scorecard em `.hook-state/session-audit.log` |
+| `subagent-pre`, `subagent-post` | Em volta de cada subagente | Registram qual agente rodou e por quanto tempo |
+| `tool-failure-observe` | Depois de uma chamada de ferramenta que falhou | Conta as falhas por ferramenta |
+| `stop-failure-observe` | Quando um turno termina num erro da API | Registra rate limits e erros de servidor |
+| `task-complete-notify` | Quando o Claude termina | Envia uma notificação no desktop (macOS, Linux) |
+
+**Opcionais** — ligados no perfil strict, ou adicione você mesmo
+
+| Hook | Roda | O que faz |
+|---|---|---|
+| `auto-format` | Depois de edições | Roda o seu formatador |
+| `auto-lint` | Depois de edições | Roda o seu linter |
+| `skill-compliance` | Depois de edições | Lembra o Claude de conferir os checklists das skills ativas |
+| `skill-extract-reminder` | A cada prompt | Lembra o Claude de transformar algo novo que aprendeu numa skill |
+| `notify-waiting` | Quando o Claude está esperando por você | Envia uma notificação push (ntfy ou Pushover) |
+
+</details>
+
+### Como um projeto fica organizado
+
+```text
+seu-projeto/
+├── CLAUDE.md            # as regras de trabalho (do kit)
+├── CLAUDE.project.md    # as suas regras; têm prioridade sobre as do kit
+├── CODEBASE_MAP.md      # o mapa do seu projeto, lido em toda sessão
+├── agent_docs/          # guias que o Claude lê quando precisa; project/ é seu
+├── .claude/
+│   ├── settings.json    # quais hooks rodam; listas de comandos permitidos e negados
+│   ├── hooks/           # os 28 hooks; project/ é seu
+│   ├── skills/          # as 37 skills
+│   ├── agents/          # os 6 subagentes
+│   └── extensions/      # skills de outros autores
+├── scripts/             # doctor, validate, statusline, convert e outros utilitários
+├── tasks/               # plano, decisões, lições, handoffs, specs, relatórios
+└── .hook-state/         # o estado de trabalho dos hooks (ignorado pelo git)
+```
+
+### Arquivos que o kit escreve enquanto você trabalha
+
+| Arquivo | Escrito por | Para que serve |
+|---|---|---|
+| `tasks/todo.md` | O Claude, quando planeja | O plano oficial: a tarefa atual, os passos e o "Not Now" para tudo que está fora do escopo |
+| `tasks/decisions.md` | O Claude, depois que você aprova uma mudança protegida | Decisões de arquitetura (ADRs), com as opções que você considerou |
+| `tasks/lessons/` | O Claude, depois que você o corrige | Uma lição por arquivo; o `_index.md` guarda as regras principais carregadas em toda sessão, e o `/lesson-refresh` move as desatualizadas para `_archive/` |
+| `tasks/handoff-<sessão>.md` | O `journal-fold`, no fim da sessão | De onde a próxima sessão continua |
+| `tasks/specs/<data>-<nome>/` | `/shape-spec` | Spec, decisões e referências de uma feature que dura várias sessões |
+| `tasks/*_CONTRACT.md` | Você ou o Claude | Os critérios de conclusão de uma tarefa, verificados pelo `qa-reviewer` |
+| `tasks/reviews/` | `/review-pipeline` | O relatório de revisão consolidado |
+| `tasks/pulses/`, `tasks/retros/` | `/pulse`, `/retro` | Relatórios periódicos que formam uma linha do tempo |
+| `golden-principles.yaml` | `/constitution` | Os seus princípios de código, que o `/quality-audit` verifica |
+| `docs/` | `/harness-init`, `/quality-audit`, `/references-sync` | Docs de arquitetura, o quality score e cópias locais da documentação das bibliotecas |
+| `.hook-state/` | Os hooks | Estado da sessão: resultados dos gates, o registro de verificações, o log da sessão, o journal do `/note`, orçamentos |
+| `.kit-manifest`, `.kit-baseline` | O instalador | O que o kit instalou, para o upgrade e a desinstalação mexerem só nos arquivos dele |
+| `<arquivo>.kit-new`, `.kit-backup/` | `--upgrade`, `uninstall` | A versão mais nova do kit para um arquivo que você editou; cópias salvas antes de uma substituição ou remoção |
+
+### Guias e comandos
+
+<details>
+<summary>Os 12 guias em <code>agent_docs/</code></summary>
+
+| Guia | Cobre |
+|---|---|
+| `workflow.md` | Ciclo de vida da tarefa, reformulação como meta, o template de plano, estratégia de sessão, higiene de contexto |
+| `debugging.md` | O protocolo de debugging: evidência antes da correção |
+| `testing.md` | O que e como testar |
+| `conventions.md` | Convenções de código e como seguir o estilo existente |
+| `hooks.md` | Cada hook, os perfis e como escrever os seus |
+| `skills.md` | Como usar as skills e estendê-las |
+| `subagents.md` | Quando e como passar trabalho para um subagente |
+| `worktrees.md` | Como isolar agentes paralelos que editam arquivos |
+| `auto-mode.md` | Como rodar sem supervisão com segurança, e quando parar e perguntar |
+| `contracts.md` | Critérios de conclusão de uma tarefa |
+| `prompting.md` | Prompting e consciência de vieses |
+| `architecture-language.md` | O vocabulário por trás do `/deepening-review` e do `/interface-design` |
+
+</details>
+
+Todo comando roda como `npx @lucasfelipe23/agent-code-kit <comando>`:
+
+| Comando | O que faz |
+|---|---|
+| `init` | Instala o kit; `--upgrade`, `--diff`, `--profile`, `--template`, `--wiki`, `--html` e `--gitignore` mudam como |
+| `doctor` | Confere os arquivos, as configurações e o registro dos hooks, e depois faz um autoteste dos hooks |
+| `skills` | Lista as skills pelo terminal |
+| `convert <ferramenta>` | Exporta as regras para outra ferramenta de IA |
+| `generate agents-md` | Escreve um `AGENTS.md` portável |
+| `uninstall` | Remove o que o kit instalou, depois da sua confirmação |
+
 ## 📏 As regras
 
 O `CLAUDE.md` dá ao Claude um fluxo de trabalho para seguir em toda sessão:
