@@ -256,7 +256,14 @@ import hashlib, json, os, re, sys
 
 mode, path, kit_path, hooks_path, rec_path = sys.argv[1:6]
 pairs = [a.split("=", 1) for a in sys.argv[6:] if "=" in a]
-HOOK_RE = re.compile(r"\.claude/hooks/[A-Za-z0-9_./-]+?\.sh")
+# A hook path counts only as the project's own: bare, ./-prefixed or under
+# $CLAUDE_PROJECT_DIR — never ~/.claude/... or /opt/x/.claude/... (LOOSE). An
+# entry is the kit's only when the whole command is that one path (STRICT), so
+# `hook.sh --flag` or a chain of two scripts is the project's.
+PROJ = r"(?:(?<![\w./~-])|(?<=\./)|(?<=\$CLAUDE_PROJECT_DIR/)|(?<=\$CLAUDE_PROJECT_DIR\"/)|(?<=\$\{CLAUDE_PROJECT_DIR\}/)|(?<=\$\{CLAUDE_PROJECT_DIR\}\"/))"
+HOOK = r"\.claude/hooks/[A-Za-z0-9_./-]+?\.sh"
+LOOSE_RE = re.compile(PROJ + "(" + HOOK + ")(?![A-Za-z0-9_./-])")
+STRICT_RE = re.compile(r'^(?:\./)?(?:"?\$\{?CLAUDE_PROJECT_DIR\}?"?/)?(' + HOOK + r')"?$')
 
 def out(*f):
     print("\t".join(str(x) for x in f))
@@ -281,7 +288,7 @@ def sha(matcher, hook):
                       separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
-def entries(data):
+def entries(data, strict=True):
     # (event, group index, handler index, matcher, hook path, handler)
     found = []
     hooks = data.get("hooks")
@@ -296,22 +303,27 @@ def entries(data):
             for hi, h in enumerate(g["hooks"]):
                 if not isinstance(h, dict):
                     continue
-                m = HOOK_RE.search(str(h.get("command", "")))
+                cmd = str(h.get("command", "")).strip()
+                m = STRICT_RE.match(cmd) if strict else LOOSE_RE.search(cmd)
                 if m:
-                    found.append((event, gi, hi, g.get("matcher"), m.group(0), h))
+                    found.append((event, gi, hi, g.get("matcher"), m.group(1), h))
     return found
 
+def drop(data, event, gi, hi):
+    # Remove one handler, and the group it leaves empty.
+    groups = data["hooks"][event]
+    groups[gi]["hooks"].pop(hi)
+    if not groups[gi]["hooks"]:
+        groups.pop(gi)
+
 def prune(data):
-    # Only keys the kit created are taken out again; an empty "hooks" the project
-    # had stays.
+    # Only keys the kit created are taken out again; an empty "hooks" or event
+    # the project had stays.
     hooks = data.get("hooks")
     if isinstance(hooks, dict):
         for event in list(hooks):
-            groups = hooks[event]
-            if isinstance(groups, list):
-                groups[:] = [g for g in groups if not (isinstance(g, dict) and g.get("hooks") == [])]
-                if not groups and "hooks/" + event in created:
-                    del hooks[event]
+            if hooks[event] == [] and "hooks/" + event in created:
+                del hooks[event]
         if not hooks and "hooks" in created:
             del data["hooks"]
     if data.get("env") == {} and "env" in created:
@@ -334,140 +346,148 @@ except (OSError, ValueError) as e:
     sys.exit(0)
 
 before = json.dumps(data, sort_keys=False)
-ind = indent_of(text)
-kit_paths = set(l for l in lines(hooks_path) if l)
-records = {}
-created = set()
-for l in lines(rec_path):
-    f = l.split("\t")
-    if len(f) == 5 and f[0] == "#hook":
-        records[(f[1], f[2], f[3])] = f[4]
-    elif len(f) == 2 and f[0] == "#hookkey":
-        created.add(f[1])
-mkey = lambda m: "-" if m is None else m
+try:
+    ind = indent_of(text)
+    kit_paths = set(l for l in lines(hooks_path) if l)
+    records = {}
+    created = set()
+    for l in lines(rec_path):
+        f = l.split("\t")
+        if len(f) == 5 and f[0] == "#hook":
+            records[(f[1], f[2], f[3])] = f[4]
+        elif len(f) == 2 and f[0] == "#hookkey":
+            created.add(f[1])
+    mkey = lambda m: "-" if m is None else m
 
-if mode in ("plan", "merge"):
-    try:
-        _, kit = load(kit_path)
-    except (OSError, ValueError):
-        out("manual", "the kit's settings could not be read")
-        sys.exit(0)
-    local = {}
-    try:
-        _, local = load(os.path.join(os.path.dirname(path), "settings.local.json"))
-    except (OSError, ValueError):
-        pass
-    mine = entries(data)
-    registered = set(e[4] for e in mine) | set(e[4] for e in entries(local))
-    if "hooks" in data and not isinstance(data["hooks"], dict):
-        out("manual", "\"hooks\" is not an object")
-        sys.exit(0)
-    kit_keys = set()
-    final = {}
-    for event, gi, hi, m, p, h in entries(kit):
-        if p not in kit_paths:
-            continue
-        key = (event, mkey(m), p)
-        kit_keys.add(key)
-        want = sha(m, h)
-        have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
-        if have:
-            e = have[0]
-            got = sha(e[3], e[5])
-            rec = records.get(key)
-            if got == want:
-                out("current", event, p); final[key] = want
-            elif rec and got == rec:
-                data["hooks"][event][e[1]]["hooks"][e[2]] = json.loads(json.dumps(h))
-                out("update", event, p); final[key] = want
-            else:
-                out("edited", event, p)
-                if rec:
-                    final[key] = rec
-        elif p in registered:
-            out("present", event, p)
-        else:
-            group = {"hooks": [json.loads(json.dumps(h))]}
-            if m is not None:
-                group = {"matcher": m, **group}
-            if "hooks" not in data:
-                created.add("hooks")
-            if event not in data.get("hooks", {}):
-                created.add("hooks/" + event)
-            data.setdefault("hooks", {}).setdefault(event, []).append(group)
-            mine = entries(data)
-            out("add", event, p); final[key] = want
-    for key, rec in records.items():
-        if key in kit_keys:
-            continue
-        event, m, p = key
-        have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
-        if have and sha(have[0][3], have[0][5]) == rec:
-            e = have[0]
-            data["hooks"][event][e[1]]["hooks"][e[2]] = None
-            data["hooks"][event][e[1]]["hooks"] = [x for x in data["hooks"][event][e[1]]["hooks"] if x is not None]
-            mine = entries(data)
-            out("remove", event, p)
-    prune(data)
-    kit_env = kit.get("env")
-    if isinstance(kit_env, dict):
-        env = data.get("env") if isinstance(data.get("env"), dict) else {}
-        lenv = local.get("env") if isinstance(local.get("env"), dict) else {}
-        for k, v in kit_env.items():
-            if k.startswith("ACK_") and k not in env and k not in lenv:
-                if "env" not in data:
-                    created.add("env")
-                data.setdefault("env", {})[k] = v
-                out("env", k)
-    for (event, m, p), s in sorted(final.items()):
-        out("record", event, m, p, s)
-    for k in sorted(created):
-        out("created", k)
-
-elif mode == "strip":
-    for event, gi, hi, m, p, h in reversed(entries(data)):
-        if p in kit_paths:
-            data["hooks"][event][gi]["hooks"].pop(hi)
-            out("remove", event, p)
-    prune(data)
-    if kit_path:
+    if mode in ("plan", "merge"):
         try:
             _, kit = load(kit_path)
-            kenv = kit.get("env") if isinstance(kit.get("env"), dict) else {}
         except (OSError, ValueError):
-            kenv = {}
+            out("manual", "the kit's settings could not be read")
+            sys.exit(0)
+        local = {}
+        try:
+            _, local = load(os.path.join(os.path.dirname(path), "settings.local.json"))
+        except (OSError, ValueError):
+            pass
+        mine = entries(data)
+        registered = set(e[4] for e in entries(data, False)) | set(e[4] for e in entries(local, False))
+        if "hooks" in data and not isinstance(data["hooks"], dict):
+            out("manual", "\"hooks\" is not an object")
+            sys.exit(0)
+        kit_keys = set()
+        final = {}
+        for event, gi, hi, m, p, h in entries(kit):
+            if p not in kit_paths:
+                continue
+            key = (event, mkey(m), p)
+            kit_keys.add(key)
+            want = sha(m, h)
+            have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
+            if have:
+                e = have[0]
+                got = sha(e[3], e[5])
+                rec = records.get(key)
+                if got == want:
+                    out("current", event, p); final[key] = want
+                elif rec and got == rec:
+                    data["hooks"][event][e[1]]["hooks"][e[2]] = json.loads(json.dumps(h))
+                    out("update", event, p); final[key] = want
+                else:
+                    out("edited", event, p)
+                    if rec:
+                        final[key] = rec
+            elif p in registered:
+                out("present", event, p)
+            else:
+                group = {"hooks": [json.loads(json.dumps(h))]}
+                if m is not None:
+                    group = {"matcher": m, **group}
+                if "hooks" not in data:
+                    created.add("hooks")
+                if event not in data.get("hooks", {}):
+                    created.add("hooks/" + event)
+                data.setdefault("hooks", {}).setdefault(event, []).append(group)
+                mine = entries(data)
+                out("add", event, p); final[key] = want
+        for key, rec in records.items():
+            if key in kit_keys:
+                continue
+            event, m, p = key
+            have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
+            if have and sha(have[0][3], have[0][5]) == rec:
+                e = have[0]
+                drop(data, event, e[1], e[2])
+                mine = entries(data)
+                out("remove", event, p)
+        prune(data)
+        kit_env = kit.get("env")
+        if isinstance(kit_env, dict):
+            env = data.get("env") if isinstance(data.get("env"), dict) else {}
+            lenv = local.get("env") if isinstance(local.get("env"), dict) else {}
+            for k, v in kit_env.items():
+                if k.startswith("ACK_") and k not in env and k not in lenv:
+                    if "env" not in data:
+                        created.add("env")
+                    created.add("env:" + k)
+                    data.setdefault("env", {})[k] = v
+                    out("env", k)
+        for (event, m, p), s in sorted(final.items()):
+            out("record", event, m, p, s)
+        for k in sorted(created):
+            out("created", k)
+
+    elif mode == "strip":
+        for event, gi, hi, m, p, h in reversed(entries(data)):
+            if p in kit_paths:
+                drop(data, event, gi, hi)
+                out("remove", event, p)
         env = data.get("env")
         if isinstance(env, dict):
-            for k, v in kenv.items():
-                if k.startswith("ACK_") and env.get(k) == v:
-                    del env[k]
-                    out("env", k)
+            for c in sorted(created):
+                if c.startswith("env:") and c[4:] in env:
+                    del env[c[4:]]
+                    out("env", c[4:])
         prune(data)
+        # What still names a removed hook script, and so fails on every event.
+        for event, gi, hi, m, p, h in entries(data, False):
+            if p in kit_paths:
+                out("left", event, p)
 
-elif mode == "rewrite":
-    def sub(cmd):
-        for old, new in pairs:
-            cmd = re.sub(r"(?<![A-Za-z0-9_.-])" + re.escape(old) + r"(?![A-Za-z0-9_./-])",
-                         lambda _m, n=new: n, cmd)
-        return cmd
-    olds = set(o for o, _ in pairs)
-    for event, gi, hi, m, p, h in entries(data):
-        if p in kit_paths and p in olds:
-            new = sub(h["command"])
-            if new != h["command"]:
-                h["command"] = new
-                out("rewrite", event, p)
-    sl = data.get("statusLine")
-    if isinstance(sl, dict) and isinstance(sl.get("command"), str):
-        new = sub(sl["command"])
-        if new != sl["command"]:
-            sl["command"] = new
-            out("rewrite", "statusLine", new)
+    elif mode == "rewrite":
+        def sub(cmd):
+            for old, new in pairs:
+                cmd = re.sub(r"(?<![A-Za-z0-9_.-])" + re.escape(old) + r"(?![A-Za-z0-9_./-])",
+                             lambda _m, n=new: n, cmd)
+            return cmd
+        olds = set(o for o, _ in pairs)
+        for event, gi, hi, m, p, h in entries(data, False):
+            if p in kit_paths and p in olds:
+                new = sub(h["command"])
+                if new != h["command"]:
+                    h["command"] = new
+                    out("rewrite", event, p)
+        sl = data.get("statusLine")
+        if isinstance(sl, dict) and isinstance(sl.get("command"), str):
+            new = sub(sl["command"])
+            if new != sl["command"]:
+                sl["command"] = new
+                out("rewrite", "statusLine", new)
+except (AttributeError, TypeError, KeyError, IndexError):
+    out("manual", "an unexpected shape in the settings file")
+    sys.exit(0)
 
 if mode != "plan" and json.dumps(data, sort_keys=False) != before:
     try:
-        with open(path, "w", encoding="utf-8") as fh:
+        real = os.path.realpath(path)
+        tmp = real + ".ack-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(dump(data, ind, text))
+        try:
+            os.chmod(tmp, os.stat(real).st_mode & 0o7777)
+        except OSError:
+            pass
+        os.replace(tmp, real)
     except OSError:
         out("manual", "could not write the file")
 if mode == "merge":
@@ -1182,7 +1202,14 @@ if [ -f "$DEST/.claude/settings.json" ] && [ "$SETTINGS_HOOK_RECORDS" -gt 0 ]; t
       warn ".claude/settings.json still registers kit hooks that were removed — each fails on every matching event; delete those entries"
     else
       _n=$(printf '%s\n' "$_strip_out" | grep -c '^remove' || true)
-      ok "Removed $_n kit hook entries from .claude/settings.json (your copy is in $_sb/.claude/settings.json)"
+      if [ "$_n" -gt 0 ]; then
+        ok "Removed $_n kit hook entries from .claude/settings.json (your copy is in $_sb/.claude/settings.json)"
+      fi
+      _left=$(printf '%s\n' "$_strip_out" | awk -F'\t' '$1 == "left" { print "       - " $3 " (" $2 ")" }')
+      if [ -n "$_left" ]; then
+        warn ".claude/settings.json has entries of yours that still run kit hooks that were removed — each fails on every matching event; delete or change them:"
+        printf '%s\n' "$_left"
+      fi
     fi
     if cmp -s "$DEST/.claude/settings.json" "$DEST/$_sb/.claude/settings.json"; then
       rm -f "$DEST/$_sb/.claude/settings.json"; rmdir "$DEST/$_sb/.claude" "$DEST/$_sb" 2>/dev/null || true
