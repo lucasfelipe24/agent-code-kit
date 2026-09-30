@@ -34,6 +34,7 @@
   <a href="#-demo">Demo</a> ·
   <a href="#-início-rápido">Início rápido</a> ·
   <a href="#-como-funciona">Como funciona</a> ·
+  <a href="#-fluxos-de-trabalho">Fluxos de trabalho</a> ·
   <a href="#-skills-e-agentes">Skills</a> ·
   <a href="#-configuração">Configuração</a> ·
   <a href="#-perguntas-frequentes">Perguntas frequentes</a>
@@ -80,6 +81,20 @@ O Claude Code é capaz, mas afobado. Por conta própria, ele vai:
 - repetir o erro que você corrigiu ontem
 
 Um prompt dizendo "não faça isso" ajuda — até o modelo ignorá-lo. O Agent Code Kit entrega as regras **e** o mecanismo que as faz valer.
+
+| | Um `CLAUDE.md` escrito à mão | Com o kit |
+|---|---|---|
+| **Regras** | O que você lembrou de escrever | Um fluxo testado: planejar, confirmar, implementar, verificar |
+| **Quando o Claude esquece uma regra** | Nada acontece | Um hook bloqueia a ação e diz ao Claude por quê |
+| **"Pronto"** | Quando o Claude disser | Bloqueado enquanto o typecheck ou o lint de algum arquivo editado estiver falhando |
+| **Dependências, schema, autenticação** | Fica a critério do modelo | Para até você aprovar; a sua escolha é registrada como uma decisão |
+| **As suas correções** | Somem quando a sessão termina | Viram lições; as mais importantes são carregadas em toda sessão |
+| **Depois de uma compactação ou numa sessão nova** | O Claude começa do zero | O plano ativo, as lições principais e as suas notas voltam sozinhos |
+| **Revisões, auditorias, releases** | Um prompt novo a cada vez | 37 skills e 6 subagentes, cada um com um processo fixo |
+
+**Vale a pena se você** usa o Claude Code num código de verdade — novo ou que você mantém há anos — e responde pelo que ele entrega; quer as mesmas regras para todo o time, versionadas junto com o código; ou deixa o Claude rodar sozinho por mais tempo (auto mode, `/loop`) e precisa de limites que ele não consegue contornar na conversa.
+
+**Provavelmente não compensa se** você só usa o Claude Code para scripts avulsos, ou está no Windows sem WSL.
 
 ## 🚀 Início rápido
 
@@ -145,12 +160,15 @@ O `CLAUDE.md` dá ao Claude um fluxo de trabalho para seguir em toda sessão:
 
 | Regra | O que o Claude faz |
 |---|---|
-| **Planejar primeiro** | Para mudanças em 3+ arquivos, escreve um plano em `tasks/todo.md` e espera o seu sinal verde |
-| **Disciplina de escopo** | Mexe só no que a tarefa precisa; registra qualquer outra coisa que notar em "Not Now" |
+| **Planejar primeiro** | Para mudanças em 3+ arquivos, reformula o seu pedido como uma meta verificável ("corrija o bug" → "escreva um teste que reproduza o bug e faça-o passar"), escreve um plano em `tasks/todo.md` e espera o seu sinal verde |
+| **Disciplina de escopo** | Mexe só no que a tarefa precisa, segue o estilo dos arquivos que edita e registra qualquer outra coisa que notar em "Not Now" |
 | **Mudanças protegidas** | Para antes de novas dependências e de mudanças em schema, API, autenticação ou build; apresenta opções e registra a sua escolha como uma decisão |
-| **Verificação** | Roda typecheck, lint, testes e um smoke test, nessa ordem, antes de dar uma tarefa como concluída |
+| **Verificação** | Roda typecheck, lint, testes e um smoke test, nessa ordem, antes de dar uma tarefa como concluída — e, quando processa um lote, informa quantos itens falharam ou foram pulados |
 | **Lições** | Quando você o corrige, escreve uma lição em `tasks/lessons/` e revisa as regras principais no início de cada sessão |
 | **Contexto em camadas** | Carrega o mapa do projeto em toda sessão, o plano e o handoff só ao retomar um trabalho, e as lições e decisões só quando são relevantes |
+| **Depois de uma compactação** | Relê o plano, os arquivos que estava editando e as suas notas antes de escrever mais uma linha |
+| **Modelo por fase** | Planeja e depura com o modelo mais capaz, implementa com um mais rápido |
+| **Modelo vs. código** | Deixa o trabalho determinístico — parsing, retries, conversões de formato, consultas — para o código, não para o modelo |
 
 Coloque as suas próprias regras no `CLAUDE.project.md` — elas têm prioridade sobre as do kit.
 
@@ -171,6 +189,58 @@ Hooks são scripts shell que o Claude Code executa em pontos fixos: antes de uma
 O perfil padrão liga 23 dos 28 hooks. Os que não aparecem acima observam em vez de bloquear: alertam sobre segredos e Unicode invisível nas edições, detectam loops de edição e saídas de ferramenta grandes demais, reinjetam o seu plano depois de uma compactação de contexto e mantêm um log da sessão para o `/scorecard`. Depois da instalação, `agent_docs/hooks.md` descreve cada hook e como escrever os seus.
 
 Os hooks são testados — veja [Rodar os testes](#-rodar-os-testes).
+
+## 🔁 Uma sessão com o kit
+
+O que roda, e quando, sem você digitar nenhum comando:
+
+| Quando | O que acontece |
+|---|---|
+| **A sessão começa** | O Claude recebe ponteiros para o mapa do projeto, as lições principais, a tarefa ativa em `tasks/todo.md` e a branch atual |
+| **Você envia um prompt** | Se você mencionar autenticação, cobrança, migration, deploy ou uma dependência nova, o Claude recebe um lembrete curto das regras que se aplicam |
+| **Antes de uma edição** | Segredos, lock files e mudanças protegidas não aprovadas são bloqueados; a primeira edição num arquivo de teste ou de migration traz as orientações para esse tipo de arquivo |
+| **Antes de um comando no shell** | Pushes para a `main`, comandos destrutivos, instalação de dependências e mensagens de commit são verificados |
+| **Depois de uma edição** | O typecheck ou o lint do arquivo roda e o resultado é registrado; a edição passa por uma varredura de segredos e Unicode invisível; a 4ª edição no mesmo arquivo gera um alerta de loop, e a 6ª é bloqueada |
+| **O Claude tenta encerrar** | Bloqueado enquanto a verificação de algum arquivo editado estiver falhando, tiver estourado o tempo ou for mais antiga que o arquivo |
+| **O contexto é compactado** | A tarefa ativa, as lições principais, o contrato da tarefa (se houver) e as suas entradas do `/note` voltam ao contexto |
+| **A sessão termina** | Uma linha de scorecard é gravada para o `/scorecard`, e as suas entradas do `/note` são salvas em `tasks/handoff-<sessão>.md` para a próxima sessão |
+
+## 🧭 Fluxos de trabalho
+
+As skills foram feitas para se encadear. Alguns caminhos comuns:
+
+**Construir uma feature**
+
+1. `/office-hours` — defina o que construir e por quê, enquanto a ideia ainda está vaga.
+2. `/shape-spec` — crie uma pasta de spec, quando o trabalho for durar várias sessões.
+3. Peça a mudança. O Claude a reformula como uma meta verificável, escreve o plano em `tasks/todo.md` e espera o seu sinal verde.
+4. O Claude implementa; cada edição é verificada na hora.
+5. `/review-pipeline` — auditorias em paralelo sobre o diff, antes do merge.
+6. `/ship` — testes, changelog, commits limpos e o pull request.
+
+O `/feature-cycle` roda os passos 2 a 6 de uma vez e para no primeiro gate que falhar.
+
+**Corrigir um bug** — O `/debug` reúne evidências e encontra a causa raiz antes de mexer no código, escreve um teste que reproduz o bug e depois o faz passar.
+
+**Revisar uma mudança** — O `/review-pipeline` roda várias auditorias sobre o diff em paralelo e junta os achados num relatório só. Quando quiser alguém tentando quebrar a mudança, peça o agente `devils-advocate`.
+
+**Trabalhar em várias sessões** — O plano em `tasks/todo.md` e as decisões em `tasks/decisions.md` sobrevivem a qualquer sessão. O `/note` guarda um achado ou uma decisão no meio da sessão: ele sobrevive a uma compactação e é salvo num handoff quando a sessão termina, para a próxima continuar de onde você parou.
+
+**Adotar num projeto existente**
+
+1. Rode o `init`. O seu `CLAUDE.md`, o seu `.claude/settings.json` e os seus hooks, agentes e scripts ficam como estão, e o instalador lista o que deixou intacto.
+2. Manteve o seu `settings.json`? Registre nele os hooks do kit — o `doctor` falha até você fazer isso.
+3. Manteve o seu `CLAUDE.md`? Mova as suas regras para o `CLAUDE.project.md` para ativar as do kit (veja as [Perguntas frequentes](#-perguntas-frequentes)).
+4. Preencha o `CODEBASE_MAP.md`. O `/constitution` consegue inferir os seus princípios de código a partir do código existente e gravá-los em `golden-principles.yaml`, e o `/quality-audit` depois verifica o código contra eles.
+
+**Acompanhar o trabalho**
+
+| Quando | Skill | O que ela responde |
+|---|---|---|
+| Toda semana | `/pulse` | O que foi entregue, quebrou e foi aprendido, salvo em `tasks/pulses/` como uma linha do tempo |
+| Toda semana | `/retro` | Como o trabalho andou: sessões, volume, pontos quentes, o que mudar |
+| A qualquer hora | `/scorecard` | Números da sessão: taxa de aprovação nos gates, bloqueios disparados, orçamento de saída |
+| A cada poucas semanas | `/lesson-refresh` | Quais lições manter, afinar, promover ou arquivar |
 
 ## 🧰 Skills e agentes
 
