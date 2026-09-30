@@ -37,6 +37,17 @@ Track important technical decisions here so they don't get lost between sessions
 
 <!-- Add new decisions below this line -->
 
+### ADR-036: The docs site is a Fumadocs project in `web/`, with its own dependencies
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: The kit has no docs site. `scripts/gen-skill-docs.sh` emits Fumadocs pages into a `../web` that holds no project, and ADR-009 pointed the plugin's `homepage` at a site that does not exist. The kit itself ships with zero runtime dependencies, and a site needs a framework. Spec: `tasks/specs/2026-09-30-docs-site/`.
+- **Options**:
+  - A) Fumadocs (Next 16 + fumadocs-core/ui/mdx + Tailwind 4) in `web/` with its own `package.json`, static export to GitHub Pages — Pros: the generator already targets it; search, i18n and sidebar come built in; the dependencies never touch the kit's `package.json`, npm `files` or `.kit-manifest`. / Cons: a Node toolchain and a lockfile to keep current, for a maintainer-only artifact.
+  - B) A static generator with no framework (pandoc or a shell script over the markdown) — Pros: no dependencies. / Cons: search, i18n, navigation and theming would all be built by hand.
+  - C) GitHub Pages with Jekyll straight from the markdown — Pros: no build step in the repo. / Cons: the kit tried and removed it (CHANGELOG, Cayman theme); no i18n or search worth the name.
+- **Decision**: A — the maintainer's choice, dependencies approved 2026-09-30.
+- **Consequences**: New `web/` project and `.github/workflows/pages.yml`. Generated pages are built in CI and gitignored. `gen-skill-docs.sh` becomes a maintained generator that the R2 moves also update. The maintainer enables Settings → Pages → Source = GitHub Actions once. `package.json` and `.claude-plugin/plugin.json` `homepage` move to the site URL.
+
 ### ADR-035: The kit's source repo mirrors the installed layout
 - **Date**: 2026-09-30
 - **Status**: accepted
