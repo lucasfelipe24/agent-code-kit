@@ -103,6 +103,14 @@ if [ -f "$DEST/.kit-manifest" ]; then
     [ -n "$_entry" ] && KIT_MANIFEST_ENTRIES+=("$_entry")
   done < "$DEST/.kit-manifest"
 fi
+# A record without a manifest (the manifest was deleted): the record lists every
+# file the kit wrote, one by one, so it takes the manifest's place — never the
+# whole-folder fallbacks.
+if [ "${#KIT_MANIFEST_ENTRIES[@]}" -eq 0 ] && [ -f "$DEST/.kit-baseline" ]; then
+  while IFS= read -r _entry; do
+    [ -n "$_entry" ] && KIT_MANIFEST_ENTRIES+=("$_entry")
+  done < <(awk -F'\t' '/^#/ { next } NF >= 2 { print $2 }' "$DEST/.kit-baseline")
+fi
 # The kit shares scripts/, agent_docs/ and .claude/{hooks,skills,agents}/ with
 # the project. With a manifest, only its entries are removed there (the backstop
 # at the end picks them up) and a directory goes only once it's empty. An
@@ -110,13 +118,6 @@ fi
 # directories are still removed whole — the listing below shows them first.
 HAVE_MANIFEST=false
 [ "${#KIT_MANIFEST_ENTRIES[@]}" -gt 0 ] && HAVE_MANIFEST=true
-
-# Did the kit ever run here? Without a manifest, a record or its CLAUDE.md, the
-# shared folders (scripts/, .claude/hooks/, wiki/, artifacts/ ...) are the project's
-# own, and the whole-folder fallbacks below stay out of them — an install that
-# aborted before writing anything leaves exactly this.
-KIT_HERE=false
-ack_prior_install "$DEST" && KIT_HERE=true
 SHARED_DIRS="agent_docs scripts .claude/hooks .claude/skills .claude/agents"
 
 # baseline_hash <path> — the hash .kit-baseline records for <path>, if any.
@@ -213,7 +214,8 @@ ack_prior_install() {
 # The kit tree this script runs from (the npm package or a clone) holds the
 # scaffold and templates the installer copied, so a project file can be checked
 # against the kit's copy. Empty when that tree isn't here (piped from curl).
-KIT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+KIT_SRC=""
+[ -n "${BASH_SOURCE[0]:-}" ] && KIT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 [ -d "$KIT_SRC/scaffold/tasks" ] && command -v cmp >/dev/null 2>&1 || KIT_SRC=""
 
 # same_as_kit <file> <kit-relative path> — is <file> still the kit's copy, byte
@@ -328,9 +330,24 @@ if [ "$(ack_record_files "$DEST")" -eq 0 ] && ack_prior_install "$DEST"; then
   NO_RECORD=true
 fi
 
+# Did the kit ever run here? Without a manifest, a record or its CLAUDE.md, the
+# shared folders (scripts/, .claude/hooks/, wiki/, artifacts/ ...) are the project's
+# own, and the whole-folder fallbacks below stay out of them — an install that
+# aborted before writing anything leaves exactly this.
+KIT_HERE=false
+ack_prior_install "$DEST" && KIT_HERE=true
+
+# module_here <file> — is this optional module's marker file the kit's? A wiki/ or
+# artifacts/ folder with no such file is the project's own.
+module_here() {
+  case "$(ack_owner "$DEST" "$1")" in absent|unrecorded) return 1 ;; esac
+  [ "$KIT_HERE" = true ]
+}
+
 # Root files
 [ -f "$DEST/VERSION" ] && FILES_TO_REMOVE+=("VERSION")
 [ -f "$DEST/.kit-manifest" ] && FILES_TO_REMOVE+=(".kit-manifest")
+[ -f "$DEST/.kit-baseline" ] && FILES_TO_REMOVE+=(".kit-baseline")
 if [ -f "$DEST/CLAUDE.md" ] && may_remove "CLAUDE.md"; then
   FILES_TO_REMOVE+=("CLAUDE.md")
 fi
@@ -398,7 +415,7 @@ fi
 
 # Wiki module (optional, installed via --wiki) — may contain user data
 WIKI_PRESENT=false
-if [ "$KIT_HERE" = true ] && { [ -f "$DEST/WIKI.md" ] || [ -d "$DEST/wiki" ] || [ -d "$DEST/raw-sources" ]; }; then
+if [ -f "$DEST/WIKI.md" ] && module_here WIKI.md; then
   WIKI_PRESENT=true
 fi
 if [ "$WIKI_PRESENT" = true ]; then
@@ -436,7 +453,7 @@ fi
 
 # HTML artifacts module (optional, installed via --html) — may contain user data
 ARTIFACTS_PRESENT=false
-if [ "$KIT_HERE" = true ] && { [ -f "$DEST/ARTIFACTS.md" ] || [ -d "$DEST/artifacts" ]; }; then
+if [ -f "$DEST/ARTIFACTS.md" ] && module_here ARTIFACTS.md; then
   ARTIFACTS_PRESENT=true
 fi
 if [ "$ARTIFACTS_PRESENT" = true ]; then
@@ -762,7 +779,11 @@ if [ "$NO_RECORD" = true ]; then
             ${BACKSTOP_TO_REMOVE[@]+"${BACKSTOP_TO_REMOVE[@]}"} ${LEFTOVERS_TO_REMOVE[@]+"${LEFTOVERS_TO_REMOVE[@]}"} \
             ${TASKS_TO_REMOVE[@]+"${TASKS_TO_REMOVE[@]}"}; do
     # a glob entry (agent_docs/*.md) expands to its files
-    for _src in "$DEST"/${_p%/}; do
+    case "$_p" in
+      *\**) set -- "$DEST"/$_p ;;
+      *) set -- "$DEST/${_p%/}" ;;
+    esac
+    for _src in "$@"; do
       [ -e "$_src" ] || [ -L "$_src" ] || continue
       _rel="${_src#"$DEST"/}"
       mkdir -p "$DEST/$_stamp/$(dirname "$_rel")"
@@ -799,7 +820,8 @@ if [ ${#DIRS_TO_REMOVE[@]} -gt 0 ]; then
         REMOVED=$((REMOVED + 1))
         ;;
       *)
-        rm -rf "${DEST:?}/${d:?}"
+        # no trailing slash: on a link, rm takes the link and never its target
+        rm -rf "${DEST:?}/${d%/}"
         ok "Removed $d"
         REMOVED=$((REMOVED + 1))
         ;;
@@ -820,7 +842,8 @@ if [ ${#CLAUDE_DIRS_TO_REMOVE[@]} -gt 0 ]; then
         REMOVED=$((REMOVED + 1))
         ;;
       *)
-        rm -rf "${DEST:?}/${d:?}"
+        # no trailing slash: on a link, rm takes the link and never its target
+        rm -rf "${DEST:?}/${d%/}"
         ok "Removed $d"
         REMOVED=$((REMOVED + 1))
         ;;

@@ -615,6 +615,69 @@ for f in $NE_FILES; do
   [ -f "$VTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
 done
 
+# --- review findings on PR A ---------------------------------------------------
+echo "== uninstall: modules, a missing manifest, links, odd names, curl =="
+inst() {  # <dir> [install flags] — a fresh install into <dir>
+  local d="$1"; shift
+  mkdir -p "$d"; echo '{"name":"t","version":"1.0.0"}' > "$d/package.json"
+  ( cd "$d" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" "$@" >"$d/.install.log" 2>&1 ) \
+    || { fail "install into $d failed"; tail -6 "$d/.install.log"; }
+}
+uninst() { ( cd "$1" && bash "$KIT_ROOT/uninstall.sh" --force >"$1/.uninstall.log" 2>&1 ) \
+  && pass "uninstall ran clean" || { fail "uninstall errored"; tail -6 "$1/.uninstall.log"; }; }
+
+# The optional modules go with a round trip.
+MTMP="$XTMP/modules"; inst "$MTMP" --wiki --html; uninst "$MTMP"
+for f in WIKI.md ARTIFACTS.md wiki artifacts raw-sources; do
+  [ ! -e "$MTMP/$f" ] && pass "the kit's $f is gone" || fail "the kit's $f was left"
+done
+grep -q 'command not found' "$MTMP/.uninstall.log" && fail "uninstall calls a function before defining it" || pass "no undefined function"
+
+# A wiki/ or artifacts/ the kit never installed is the project's.
+OTMP="$XTMP/own-modules"; inst "$OTMP"
+mkdir -p "$OTMP/wiki" "$OTMP/artifacts"; echo x > "$OTMP/wiki/Home.md"; echo x > "$OTMP/artifacts/app.tar"
+uninst "$OTMP"
+[ -f "$OTMP/wiki/Home.md" ] && [ -f "$OTMP/artifacts/app.tar" ] && pass "a project's own wiki/ and artifacts/ stay" \
+  || fail "a project's own wiki/ or artifacts/ was removed"
+
+# The manifest is gone but the record is there: the record decides, file by file.
+RTMP="$XTMP/no-manifest"; inst "$RTMP"; rm -f "$RTMP/.kit-manifest"
+echo x > "$RTMP/scripts/mine.sh"; echo x > "$RTMP/.claude/hooks/myhook.sh"; echo x > "$RTMP/agent_docs/mynotes.md"
+uninst "$RTMP"
+for f in scripts/mine.sh .claude/hooks/myhook.sh agent_docs/mynotes.md; do
+  [ -f "$RTMP/$f" ] && pass "kept the project's $f" || fail "removed the project's $f"
+done
+[ ! -e "$RTMP/scripts/doctor.sh" ] && [ ! -e "$RTMP/.kit-baseline" ] && pass "the kit's files and its record are gone" \
+  || fail "the kit's files or record were left"
+
+# A linked folder is taken as a link; what it points at is never touched.
+LTMP="$XTMP/links"; inst "$LTMP"
+mkdir -p "$LTMP/../shared-proj" "$LTMP/../shared-scripts"
+echo x > "$LTMP/../shared-proj/team-rules.md"; echo x > "$LTMP/../shared-scripts/precious.sh"
+rm -rf "$LTMP/agent_docs/project"; ln -s ../../shared-proj "$LTMP/agent_docs/project"
+uninst "$LTMP"
+[ -f "$XTMP/shared-proj/team-rules.md" ] && pass "a linked agent_docs/project target is untouched" || fail "a linked agent_docs/project target was wiped"
+LTMP2="$XTMP/links-norecord"; inst "$LTMP2"; rm -f "$LTMP2/.kit-baseline"
+rm -rf "$LTMP2/scripts"; ln -s ../shared-scripts "$LTMP2/scripts"
+uninst "$LTMP2"
+[ -f "$XTMP/shared-scripts/precious.sh" ] && pass "a linked scripts/ target is untouched (no record)" || fail "a linked scripts/ target was wiped"
+
+# The backup covers names with spaces.
+BTMP="$XTMP/spaces"; inst "$BTMP"; rm -f "$BTMP/.kit-baseline"
+mkdir -p "$BTMP/.claude/skills/my skill"; echo x > "$BTMP/.claude/skills/my skill/SKILL.md"
+printf '%s\n' ".claude/skills/my skill" >> "$BTMP/.kit-manifest"
+uninst "$BTMP"
+BS=$(find "$BTMP/.kit-backup" -mindepth 1 -maxdepth 1 -type d | head -1)
+[ -f "$BS/.claude/skills/my skill/SKILL.md" ] && pass "a name with a space was saved before removal" || fail "a name with a space wasn't saved"
+
+# curl | bash has no script path.
+CTMP="$XTMP/curl"; inst "$CTMP"
+if ( cd "$CTMP" && cat "$KIT_ROOT/uninstall.sh" | bash -s -- --dry-run >"$CTMP/.curl.log" 2>&1 ); then
+  pass "uninstall piped through bash runs"
+else
+  fail "uninstall piped through bash errored"; tail -4 "$CTMP/.curl.log"
+fi
+
 # --- strict profile: install path is otherwise never exercised ----------------
 echo "== strict profile install =="
 echo '{"name":"fixture-strict","version":"1.0.0"}' > "$STMP/package.json"
