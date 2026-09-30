@@ -805,6 +805,8 @@ P="$XTMP/own-script"
 mkdir -p "$P/scripts" && echo 'echo my own validate' > "$P/scripts/validate.sh"
 cp "$P/scripts/validate.sh" "$XTMP/own-validate.sh"
 fresh "$P"
+# A record that isn't marked complete (ADR-023's case); the marked one is next.
+grep -v '^#complete' "$P/.kit-baseline" > "$P/.kit-baseline.tmp" && mv "$P/.kit-baseline.tmp" "$P/.kit-baseline"
 kit "$P" .diff.log --diff || fail "--diff failed with an own scripts/validate.sh"
 kit "$P" .upgrade.log --upgrade || fail "upgrade failed with an own scripts/validate.sh"
 cmp -s "$KIT_ROOT/scripts/validate.sh" "$P/scripts/validate.sh" && pass "the kit's scripts/validate.sh lands" \
@@ -818,6 +820,47 @@ same_counts "$P" .diff.log .upgrade.log "a file with no entry in the record"
 kit "$P" .upgrade2.log --upgrade || fail "second upgrade failed"
 [[ "$(upgrade_counts "$P/.upgrade2.log")" == "0 0 0" ]] && pass "the next upgrade is quiet" \
   || fail "next upgrade: $(upgrade_counts "$P/.upgrade2.log")"
+
+echo "== upgrade: under a complete record a file with no entry is the project's (ADR-030) =="
+P="$XTMP/own-script-complete"
+mkdir -p "$P/scripts/lib" "$P/.claude/agents" && echo 'echo my own validate' > "$P/scripts/validate.sh"
+echo '# my own reviewer' > "$P/.claude/agents/code-reviewer.md"
+OWN_BEFORE=$(cd "$P" && cksum scripts/validate.sh .claude/agents/code-reviewer.md)
+fresh "$P"
+ack_record_complete "$P" && pass "a first install marks the record complete" || fail "a first install left the record unmarked"
+kit "$P" .diff.log --diff || fail "--diff failed"
+kit "$P" .upgrade.log --upgrade || fail "upgrade failed"
+[ "$OWN_BEFORE" = "$(cd "$P" && cksum scripts/validate.sh .claude/agents/code-reviewer.md)" ] \
+  && pass "the project's own files are byte-identical after --upgrade" || fail "--upgrade changed the project's own files"
+[ ! -d "$P/.kit-backup" ] && pass "nothing was replaced, so no backup" || fail "a backup was made"
+same_counts "$P" .diff.log .upgrade.log "the project's own files under a complete record"
+[[ "$(strip_log "$P/.upgrade.log")" == *"2 yours"* ]] && pass "the summary counts them as yours" || fail "no '2 yours' in the summary"
+awk -F'\t' '$2 == "scripts/validate.sh" { f = 1 } END { exit !f }' "$P/.kit-baseline" && fail "the record took the project's validate.sh" || pass "the record still omits validate.sh"
+grep -qxF "scripts/validate.sh" "$P/.kit-manifest" && fail "the manifest lists the project's validate.sh" || pass "the manifest omits validate.sh"
+ack_record_complete "$P" && pass "the upgrade keeps the record complete" || fail "the upgrade dropped #complete"
+kit "$P" .upgrade2.log --upgrade || fail "second upgrade failed"
+[[ "$(upgrade_counts "$P/.upgrade2.log")" == "0 0 0" ]] && pass "the next upgrade is quiet" || fail "next upgrade: $(upgrade_counts "$P/.upgrade2.log")"
+
+echo "== a plain run never marks a record it didn't complete =="
+P="$XTMP/plain-unmarked"
+fresh "$P"
+grep -v '^#complete' "$P/.kit-baseline" > "$P/.kit-baseline.tmp" && mv "$P/.kit-baseline.tmp" "$P/.kit-baseline"
+kit "$P" .again.log --profile minimal
+ack_record_complete "$P" && fail "a plain run marked an unmarked record complete" || pass "a plain run leaves an unmarked record unmarked"
+kit "$P" .up.log --upgrade
+ack_record_complete "$P" && pass "an --upgrade then marks it" || fail "an --upgrade left the record unmarked"
+
+echo "== a first install cut short is completed by the next --upgrade =="
+P="$XTMP/cut-short"
+mkdir -p "$P/.claude" && echo '{"name":"cs","version":"1.0.0"}' > "$P/package.json"
+: > "$P/.claude/agents"    # a regular file where a folder belongs: the run stops at the agents
+kit "$P" .install.log && fail "the install should have stopped at .claude/agents" || pass "the install stopped partway"
+[ -f "$P/.kit-baseline" ] && pass "the interrupted run left a record" || fail "no record after an interrupted run"
+ack_record_complete "$P" && pass "a cut-short first install keeps the mark it can vouch for" || fail "a cut-short first install lost the mark"
+rm -f "$P/.claude/agents"
+kit "$P" .upgrade.log --upgrade && pass "the next --upgrade ran clean" || { fail "the next --upgrade failed"; tail -5 "$P/.upgrade.log"; }
+[ -z "$(find "$P" -name '*.kit-new*')" ] && pass "no .kit-new was written" || fail "a .kit-new was written"
+[ -f "$P/.claude/agents/planner.md" ] && ack_record_complete "$P" && pass "the upgrade completed the install and marked the record" || fail "the install wasn't completed"
 
 echo "== the stale report never calls the project's own files the kit's =="
 # Older installs recorded every existing script and skill in .kit-manifest, so a
@@ -1136,7 +1179,9 @@ owner_is "a record holding only #template" no-record "$P" .claude/agents/code-re
 
 P="$XTMP/own-flags"
 fresh "$P"
-ack_record_complete "$P" && fail "a fresh record reads as complete before anything marks it" || pass "a record without #complete is not complete"
+ack_record_complete "$P" && pass "a first install marks the record complete" || fail "a fresh record is not marked complete"
+grep -v '^#complete' "$P/.kit-baseline" > "$P/.kit-baseline.tmp" && mv "$P/.kit-baseline.tmp" "$P/.kit-baseline"
+ack_record_complete "$P" && fail "a record without #complete reads as complete" || pass "a record without #complete is not complete"
 printf '#complete\t1\n' >> "$P/.kit-baseline"
 ack_record_complete "$P" && pass "#complete marks the record" || fail "#complete was not read"
 sed 's/$/\r/' "$P/.kit-baseline" > "$XTMP/flags.crlf" && cp "$XTMP/flags.crlf" "$P/.kit-baseline"
@@ -1220,6 +1265,146 @@ P="$XTMP/un-never"
 mkdir -p "$P/.claude" && printf '{"permissions":{}}\n' > "$P/.claude/settings.json"
 ( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || fail "uninstall errored"
 assert_file "$P/.claude/settings.json"
+
+# --- S5: a plain install into a project that already has these folders --------
+echo "== init in a brownfield project installs the kit beside the project's files =="
+BF="$XTMP/bf-init"
+mkdir -p "$BF/.claude/hooks/lib" "$BF/.claude/agents" "$BF/.claude/skills/my-skill" "$BF/.claude/skills/debug" "$BF/scripts" "$BF/agent_docs"
+echo '{"name":"bf","version":"1.0.0"}' > "$BF/package.json"
+printf '{"permissions":{"allow":[]}}\n' > "$BF/.claude/settings.json"
+echo '#!/bin/sh' > "$BF/.claude/hooks/my-hook.sh"
+echo '# mine' > "$BF/.claude/hooks/lib/common.sh"
+echo '# mine' > "$BF/.claude/agents/code-reviewer.md"
+echo '# mine' > "$BF/.claude/skills/my-skill/SKILL.md"
+echo '# mine' > "$BF/.claude/skills/debug/SKILL.md"
+echo 'echo mine' > "$BF/scripts/validate.sh"
+echo '# mine' > "$BF/agent_docs/workflow.md"
+BF_OWN=".claude/settings.json .claude/hooks/my-hook.sh .claude/hooks/lib/common.sh .claude/agents/code-reviewer.md .claude/skills/my-skill/SKILL.md .claude/skills/debug/SKILL.md scripts/validate.sh agent_docs/workflow.md"
+BF_BEFORE=$(cd "$BF" && for f in $BF_OWN; do cksum "$f"; done)
+kit "$BF" .install.log && pass "brownfield install ran clean" || { fail "brownfield install failed"; tail -6 "$BF/.install.log"; }
+BF_AFTER=$(cd "$BF" && for f in $BF_OWN; do cksum "$f"; done)
+[ "$BF_BEFORE" = "$BF_AFTER" ] && pass "the project's files are byte-identical" || fail "a project file changed"
+for f in .claude/hooks/quality-gate.sh .claude/hooks/secret-scan.sh .claude/agents/planner.md .claude/skills/review-pipeline/SKILL.md \
+         scripts/doctor.sh agent_docs/debugging.md; do
+  [ -f "$BF/$f" ] && pass "the kit's $f was installed" || fail "the kit's $f is missing"
+done
+[ -f "$BF/.claude/hooks/lib/hook-lib.sh" ] || [ -n "$(ls "$BF/.claude/hooks/lib" | grep -v '^common.sh$')" ] \
+  && pass "the kit's hooks/lib files were installed beside the project's" || fail "no kit file in hooks/lib"
+for f in $BF_OWN; do
+  grep -qxF "$f" "$BF/.kit-manifest" && fail "the manifest lists the project's $f" || pass "the manifest omits the project's $f"
+  awk -F'\t' -v p="$f" '$2 == p { f = 1 } END { exit !f }' "$BF/.kit-baseline" && fail "the record lists the project's $f" || pass "the record omits the project's $f"
+done
+grep -qxF ".claude/hooks/lib" "$BF/.kit-manifest" && pass "hooks/lib stays in the manifest" || fail "hooks/lib left the manifest"
+[ -x "$BF/.claude/hooks/quality-gate.sh" ] && pass "a kit hook is executable" || fail "a kit hook isn't executable"
+[ ! -x "$BF/.claude/hooks/my-hook.sh" ] && pass "the project's hook keeps its mode" || fail "the project's hook was made executable"
+BF_LOG=$(strip_log "$BF/.install.log")
+[[ "$BF_LOG" == *"kept"*"existing"* ]] && pass "the log says what was kept" || fail "the log doesn't say what was kept"
+# A second plain run (minimal: a full one needs a terminal, F7) changes nothing and keeps hooks/lib listed.
+BF_SNAP=$(snap "$BF" | grep -v "\.kit-manifest\|\.kit-baseline")
+kit "$BF" .install2.log --profile minimal && pass "a re-run ran clean" || fail "the re-run failed"
+BF_SNAP2=$(snap "$BF" | grep -v "\.kit-manifest\|\.kit-baseline")
+[ "$BF_SNAP" = "$BF_SNAP2" ] && pass "a re-run changes no file" || fail "a re-run changed files: $(diff <(echo "$BF_SNAP") <(echo "$BF_SNAP2") | head -4 | tr '\n' ' ')"
+grep -qxF ".claude/hooks/lib" "$BF/.kit-manifest" && pass "a re-run keeps hooks/lib in the manifest (F12)" || fail "a re-run dropped hooks/lib (F12)"
+# An edited .example survives a plain re-run.
+echo "// mine" >> "$BF/.claude/commands.json.example"
+kit "$BF" .install3.log --profile minimal
+grep -q '// mine' "$BF/.claude/commands.json.example" && pass "an edited .example survives a re-run" || fail "a re-run overwrote an edited .example"
+# --upgrade agrees with init on a skill of the project's named like a kit skill.
+kit "$BF" .up.log --upgrade && pass "--upgrade beside the brownfield files ran clean" || fail "--upgrade failed"
+[ "$(ls -A "$BF/.claude/skills/debug")" = "SKILL.md" ] && pass "--upgrade mixed no kit file into the project's own skill" \
+  || fail "--upgrade put kit files into the project's skill: $(ls -A "$BF/.claude/skills/debug" | tr '\n' ' ')"
+[ "$(cat "$BF/.claude/agents/code-reviewer.md")" = "# mine" ] && pass "--upgrade kept the project's code-reviewer.md" || fail "--upgrade replaced code-reviewer.md"
+
+# --- S6: tasks/ that is the project's own, or kit-shaped ----------------------
+echo "== init: a foreign tasks/ is left alone, a kit-shaped one is completed =="
+TF="$XTMP/tasks-foreign"; mkdir -p "$TF/tasks"
+echo '{"name":"tf","version":"1.0.0"}' > "$TF/package.json"; echo "# worker" > "$TF/tasks/celery.py"
+kit "$TF" .install.log && pass "install beside a foreign tasks/ ran clean" || { fail "install failed"; tail -6 "$TF/.install.log"; }
+TF_LS=$(ls -A "$TF/tasks")
+[ "$TF_LS" = "celery.py" ] && pass "a foreign tasks/ got no kit file" || fail "a foreign tasks/ holds: $TF_LS"
+grep -q '^tasks/' "$TF/.kit-manifest" && fail "the manifest lists a foreign tasks/" || pass "the manifest omits a foreign tasks/"
+TF_LOG=$(strip_log "$TF/.install.log")
+[[ "$TF_LOG" == *"tasks/"*"board"* ]] && pass "the log says the task board wasn't installed" || fail "no word about the task board"
+TK="$XTMP/tasks-shaped"; mkdir -p "$TK/tasks"
+echo '{"name":"tk","version":"1.0.0"}' > "$TK/package.json"; echo "- [ ] the project's plan" > "$TK/tasks/todo.md"
+kit "$TK" .install.log && pass "install beside a kit-shaped tasks/ ran clean" || fail "install failed"
+[ "$(cat "$TK/tasks/todo.md")" = "- [ ] the project's plan" ] && pass "the project's todo.md is untouched" || fail "todo.md was changed"
+for f in tasks/decisions.md tasks/handoff.md tasks/lessons/_index.md; do
+  [ -f "$TK/$f" ] && pass "the missing scaffold $f was seeded" || fail "$f wasn't seeded"
+done
+awk -F'\t' '$2 == "tasks/todo.md" { f = 1 } END { exit !f }' "$TK/.kit-baseline" && fail "the record lists the project's todo.md" || pass "the record omits the project's todo.md"
+awk -F'\t' '$2 == "tasks/decisions.md" { f = 1 } END { exit !f }' "$TK/.kit-baseline" && pass "a seeded scaffold file is recorded" || fail "a seeded file isn't recorded"
+
+# --- S8: VERSION is the kit's only when the record or the old manifest says so ---
+echo "== VERSION: a project's own survives init, --upgrade, --diff and uninstall =="
+VP="$XTMP/version-own"; mkdir -p "$VP"
+echo '{"name":"vp","version":"1.0.0"}' > "$VP/package.json"; echo "3.4.0" > "$VP/VERSION"
+kit "$VP" .install.log && pass "init beside a project VERSION ran clean" || fail "init failed"
+[ "$(cat "$VP/VERSION")" = "3.4.0" ] && pass "init left the project's VERSION" || fail "init overwrote VERSION"
+grep -qxF VERSION "$VP/.kit-manifest" && fail "the manifest lists the project's VERSION" || pass "the manifest omits the project's VERSION"
+[[ "$(strip_log "$VP/.install.log")" == *"VERSION is your project"* ]] && pass "init says VERSION is the project's" || fail "no VERSION warning"
+kit "$VP" .up.log --upgrade
+[ "$(cat "$VP/VERSION")" = "3.4.0" ] && pass "--upgrade left the project's VERSION" || fail "--upgrade overwrote VERSION"
+kit "$VP" .diff.log --diff
+[[ "$(strip_log "$VP/.diff.log")" == *"Installed: unknown"* ]] && pass "--diff shows the installed version as unknown" || fail "--diff shows the project's VERSION as the kit's"
+( cd "$VP" && bash "$KIT_ROOT/uninstall.sh" --force >"$VP/.uninstall.log" 2>&1 )
+[ "$(cat "$VP/VERSION" 2>/dev/null)" = "3.4.0" ] && pass "uninstall kept the project's VERSION" || fail "uninstall removed the project's VERSION"
+
+echo "== VERSION: the kit's own is written, recorded and removed =="
+VG="$XTMP/version-kit"; fresh "$VG"
+awk -F'\t' '$2 == "VERSION" { f = 1 } END { exit !f }' "$VG/.kit-baseline" && pass "a greenfield VERSION is recorded" || fail "VERSION isn't recorded"
+( cd "$VG" && bash "$KIT_ROOT/uninstall.sh" --force >"$VG/.uninstall.log" 2>&1 )
+[ ! -e "$VG/VERSION" ] && pass "uninstall removed the kit's VERSION" || fail "uninstall left the kit's VERSION"
+
+echo "== VERSION: an install from before R1 (unrecorded, listed, kit line) is updated =="
+VL="$XTMP/version-legacy"; fresh "$VL"
+grep -v "$(printf '\t')VERSION\$" "$VL/.kit-baseline" > "$VL/.kit-baseline.tmp" && mv "$VL/.kit-baseline.tmp" "$VL/.kit-baseline"
+echo "1.0.0 # x-release-please-version" > "$VL/VERSION"
+kit "$VL" .up.log --upgrade
+cmp -s "$KIT_ROOT/VERSION" "$VL/VERSION" && pass "a pre-R1 VERSION is updated" || fail "a pre-R1 VERSION was left behind"
+awk -F'\t' '$2 == "VERSION" { f = 1 } END { exit !f }' "$VL/.kit-baseline" && pass "and now recorded" || fail "and still unrecorded"
+
+# --- review findings on PR B ---------------------------------------------------
+echo "== a cut-short install over a brownfield project never costs it a file =="
+P="$XTMP/cut-brown"; mkdir -p "$P/.claude/skills/debug" "$P/scripts"
+echo '{"name":"cb","version":"1.0.0"}' > "$P/package.json"
+echo '# mine' > "$P/.claude/skills/debug/SKILL.md"; echo 'echo mine' > "$P/scripts/validate.sh"
+: > "$P/.claude/agents"
+kit "$P" .install.log && fail "the install should have stopped" || pass "the install stopped partway"
+rm -f "$P/.claude/agents"
+kit "$P" .up.log --upgrade
+[ "$(cat "$P/scripts/validate.sh")" = "echo mine" ] && [ "$(cat "$P/.claude/skills/debug/SKILL.md")" = "# mine" ] \
+  && pass "the --upgrade after a cut-short install kept the project's files" || fail "the --upgrade overwrote a project file"
+echo "== a failed --upgrade keeps a complete record complete =="
+P="$XTMP/failed-up"; fresh "$P"
+mkdir -p "$P/.claude/agents.d"; rm -f "$P/.claude/agents/planner.md"; mv "$P/.claude/agents" "$P/.claude/agents.real"; : > "$P/.claude/agents"
+kit "$P" .up.log --upgrade && fail "the --upgrade should have failed" || pass "the --upgrade failed"
+rm -f "$P/.claude/agents"; mv "$P/.claude/agents.real" "$P/.claude/agents"
+ack_record_complete "$P" && pass "the failed run left the record marked" || fail "the failed run dropped #complete"
+echo "== --upgrade refuses a project's own hooks/lib file the hooks would source =="
+P="$XTMP/own-lib-up"; mkdir -p "$P/.claude/hooks/lib"; echo '{"name":"o","version":"1.0.0"}' > "$P/package.json"
+echo '# mine' > "$P/.claude/hooks/lib/json-parse.sh"
+kit "$P" .up.log --upgrade && fail "--upgrade went ahead over a foreign hooks/lib file" || pass "--upgrade stopped before writing"
+[ ! -e "$P/.kit-baseline" ] && [ ! -e "$P/.claude/hooks/block-dangerous-commands.sh" ] && pass "and wrote nothing" || fail "it wrote files before stopping"
+echo "== a CRLF record is read like an LF one =="
+P="$XTMP/crlf"; fresh "$P"
+sed 's/$/\r/' "$P/.kit-baseline" > "$P/.kb" && mv "$P/.kb" "$P/.kit-baseline"
+echo '# an older kit version' > "$P/.claude/agents/planner.md"
+kit "$P" .up.log --upgrade
+grep -qxF ".claude/agents/planner.md" "$P/.kit-manifest" && pass "a kit file under a CRLF record stays the kit's (listed)" || fail "a CRLF record made planner.md the project's"
+[[ "$(strip_log "$P/.up.log")" == *" 0 yours"* ]] && pass "and nothing was counted as yours" || fail "a CRLF record produced 'yours' entries"
+echo "== --upgrade chmods only the kit's scripts =="
+P="$XTMP/chmod-own"; mkdir -p "$P/scripts" "$P/.claude/hooks"; echo '{"name":"c","version":"1.0.0"}' > "$P/package.json"
+echo 'echo mine' > "$P/scripts/deploy.sh"; chmod 640 "$P/scripts/deploy.sh"
+echo '#!/bin/sh' > "$P/.claude/hooks/own.sh"; chmod 640 "$P/.claude/hooks/own.sh"
+kit "$P" .install.log; kit "$P" .up.log --upgrade
+[ ! -x "$P/scripts/deploy.sh" ] && [ ! -x "$P/.claude/hooks/own.sh" ] && pass "the project's scripts keep their mode" || fail "a project script was made executable"
+[ -x "$P/.claude/hooks/quality-gate.sh" ] && pass "the kit's hook is executable" || fail "a kit hook isn't executable"
+echo "== a VERSION newer than the kit's is the project's =="
+P="$XTMP/version-newer"; fresh "$P"; echo "9.0.0 # x-release-please-version" > "$P/VERSION"
+grep -v "$(printf '\t')VERSION\$" "$P/.kit-baseline" > "$P/.kb" && mv "$P/.kb" "$P/.kit-baseline"
+kit "$P" .up.log --upgrade
+[ "$(cat "$P/VERSION")" = "9.0.0 # x-release-please-version" ] && pass "a newer release-please VERSION is left alone" || fail "it was overwritten"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then

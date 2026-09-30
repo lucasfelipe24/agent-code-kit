@@ -37,6 +37,22 @@ Track important technical decisions here so they don't get lost between sessions
 
 <!-- Add new decisions below this line -->
 
+### ADR-030: A file with no install-record entry is the project's once the record is marked complete
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: ADR-023 chose to replace a file at a kit path that `.kit-baseline` doesn't list (with a backup), because a record written by a plain re-run or a plain upgrade covered only part of the kit, and B ("the project's own") would have frozen kit files at an old version. The brownfield milestone (`tasks/specs/2026-09-28-brownfield-install/`) needs the opposite for a brownfield project: its own `.claude/agents/code-reviewer.md` or `scripts/validate.sh` must stay byte-identical through `init`, `--upgrade` and `--diff`. Only ADR-023's premise — an incomplete record — blocks that.
+- **Options**:
+  - A) Keep ADR-023 A (replace and back up) — Pros: nothing new to write. / Cons: every brownfield `--upgrade` still overwrites the project's files, so criterion 5 of the spec fails.
+  - B) Treat every unrecorded file as the project's — Pros: simple. / Cons: the exact freeze ADR-023 measured (60 `.kit-new` files over a few releases) for installs whose record is partial.
+  - C) A `#complete` header line in `.kit-baseline`, written only by a run that leaves every kit path recorded or known to be the project's — Pros: repairs B where the record is trustworthy and keeps A where it isn't; older installers skip `#` lines, so a record degrades to ADR-023 A. / Cons: one more thing to write correctly on every path that writes the record.
+  - D) A `#covers` list naming which parts of the kit a record covers — Pros: finer. / Cons: ADR-023's objection stands: some fifteen writers, one forgotten brings the freeze back.
+- **Decision**: C. An `unrecorded` file under a record marked `#complete` is the project's: kept, not listed in the manifest, reported ("yours — the kit's version isn't installed"). Under an unmarked or missing record, ADR-023 A applies unchanged. `#complete` is written by a first install, any `--upgrade`, and an `init` over an already-marked record; never by a plain run over an unmarked or missing record. A run that fails midway writes what it did as a partial record that keeps only the mark it can vouch for: a first install (what it hasn't reached is absent or the project's) and a record that was already marked keep `#complete`; an `--upgrade` that dies over an unmarked record leaves it unmarked. Under an unmarked record an unlisted file is judged like no record at all (the previous manifest decides), never as the project's.
+- **Consequences**:
+  - Amends ADR-017 (the record gains the header) and ADR-023 (its rule for unrecorded files now depends on the mark); their other rules stand.
+  - A project that wants the kit's copy of a file it already had deletes it and re-runs.
+  - `--diff` reports the same outcome as `--upgrade` (`same_counts`); the summary gains a trailing `· N yours`, so the fields `upgrade_counts` and `preview_counts` parse keep their positions.
+  - Uninstall keeps an unrecorded file whatever the mark says (PR A).
+
 ### ADR-029: Configuration prefix is ACK_ — clean cutover, migrated by doctor
 - **Date**: 2026-09-28
 - **Status**: accepted

@@ -376,6 +376,7 @@ npx @lucasfelipe23/agent-code-kit@latest init --upgrade
 
 - Kit files you haven't edited are updated.
 - Kit files you've edited are kept. If the kit changed them too, its version is saved next to yours as `<file>.kit-new` for you to merge.
+- A file of your own at a path the kit also uses (your `scripts/validate.sh`, your `.claude/agents/code-reviewer.md`) stays as it is when the install record is marked complete, which every first install and every `--upgrade` does. The summary lists them as "yours". Delete yours and re-run to get the kit's version. An install from before the record replaces such a file and keeps the previous copy in `.kit-backup/`.
 - Your files — `CODEBASE_MAP.md`, `CLAUDE.project.md`, `tasks/`, `.claude/settings.json` and the `project/` folders — are never touched.
 
 Add `--diff` to preview an upgrade: it runs on a scratch copy and reports what would change, without writing to your project. To install a specific version, put it in the package name: `npx @lucasfelipe23/agent-code-kit@1.22.2 init`.
