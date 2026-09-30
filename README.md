@@ -387,7 +387,7 @@ npx @lucasfelipe23/agent-code-kit uninstall --dry-run   # list what would be rem
 npx @lucasfelipe23/agent-code-kit uninstall             # remove, after you confirm
 ```
 
-Only the kit's files are removed. Files you added to shared folders like `scripts/` or `.claude/skills/` stay, and so does `CODEBASE_MAP.md` once you've filled it in. `tasks/` and your overlay (`CLAUDE.project.md` and the `project/` folders) are removed by default — the uninstaller warns you when `tasks/` holds your work — so keep them with `--keep-tasks` and `--keep-project`.
+Only files the install record (`.kit-baseline`) lists, and that you haven't edited since, are removed. A kit file you changed stays and is listed as kept, and so does a file the record doesn't list, even when `.kit-manifest` names it. Files you added to shared folders like `scripts/` or `.claude/skills/` stay, and so does `CODEBASE_MAP.md` once you've filled it in. `tasks/` and your overlay (`CLAUDE.project.md` and the `project/` folders) are removed by default — the uninstaller warns you when `tasks/` holds your work — so keep them with `--keep-tasks` and `--keep-project`.
 
 Installed with curl? `curl -fsSL https://raw.githubusercontent.com/lucasfelipe24/agent-code-kit/main/uninstall.sh | bash -s -- --dry-run` works the same way, except that it can't compare files with the kit's own copies, so it always keeps `CODEBASE_MAP.md`.
 

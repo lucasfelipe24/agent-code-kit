@@ -478,12 +478,19 @@ if ! ( cd "$TMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$TMP/.uninstall.log"
   fail "uninstall.sh errored"; tail -8 "$TMP/.uninstall.log"
 fi
 assert_absent "$TMP/CLAUDE.md"
-assert_absent "$TMP/.claude/hooks"
 assert_absent "$TMP/.kit-manifest"
 assert_absent "$TMP/.kit-baseline"
-# The manifest backstop sweeps kit files the path-based detection misses (e.g.
-# .claude/*.example), so .claude/ is left fully clean — no orphaned kit files.
-assert_absent "$TMP/.claude"
+# The upgrade tests above edited secret-scan.sh, branch-protect.sh and
+# settings.json on purpose, and uninstall keeps a kit file edited since the
+# install (F9). Everything else the kit wrote is gone: the manifest backstop
+# sweeps what the path-based detection misses (e.g. .claude/*.example).
+KEPT_HOOKS=$(cd "$TMP/.claude/hooks" 2>/dev/null && ls -1 | tr '\n' ' ')
+[ "$KEPT_HOOKS" = "branch-protect.sh secret-scan.sh " ] && pass "only the two hooks edited since the install remain" \
+  || fail "hooks left after uninstall: ${KEPT_HOOKS:-none}"
+assert_file "$TMP/.claude/settings.json"
+assert_absent "$TMP/.claude/mcp-allowlist.txt.example"
+assert_absent "$TMP/.claude/skills"
+assert_absent "$TMP/.claude/agents"
 # the user's own file must survive
 assert_file "$TMP/package.json"
 
@@ -1034,6 +1041,54 @@ for spec in "standard:" "minimal:--profile minimal" "strict:--profile strict" "m
   [ -z "$missing" ] && pass "$name install: every shared-folder file is in the record" \
     || fail "$name install left files out of the record: $(echo $missing)"
 done
+
+echo "== uninstall keeps what the record doesn't list (N1) =="
+# init skips .claude/hooks, agents, skills and settings.json when they exist, but
+# v1.23.0 still writes the project's own files into .kit-manifest. Uninstall must
+# not read that as "the kit installed these": the project comes back as it was.
+strip_ansi() { sed "s/$(printf '\033')\[[0-9;]*m//g"; }
+P="$XTMP/un-brownfield"
+mkdir -p "$P/.claude/hooks" "$P/.claude/agents" "$P/.claude/skills/my-skill"
+printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$P/.claude/hooks/my-hook.sh"
+echo 'mine' > "$P/.claude/agents/my-agent.md"
+echo 'mine' > "$P/.claude/skills/my-skill/SKILL.md"
+echo 'mine' > "$P/.claude/settings.local.json"
+BEFORE=$(snap "$P")
+kit "$P" .install.log
+for f in .claude/settings.json .claude/hooks/my-hook.sh .claude/agents/my-agent.md .claude/skills/my-skill; do
+  grep -qxF "$f" "$P/.kit-manifest" || echo "$f" >> "$P/.kit-manifest"   # as v1.23.0 wrote them
+done
+PREVIEW=$( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --dry-run 2>&1 | strip_ansi )
+for f in .claude/settings.json .claude/hooks/my-hook.sh .claude/agents/my-agent.md .claude/skills/my-skill; do
+  case "$PREVIEW" in *"✕ $f"*) fail "--dry-run lists the project's $f for removal" ;; *) pass "--dry-run leaves $f alone" ;; esac
+done
+case "$PREVIEW" in *"will also remove empty .claude/"*) fail "--dry-run announces removing a .claude/ that holds project files" ;; *) pass "--dry-run keeps .claude/" ;; esac
+( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$P/.uninstall.log"; }
+AFTER=$(snap "$P")
+[ "$BEFORE" = "$AFTER" ] && pass "every file is back as it was before the install (nothing lost, nothing left)" \
+  || fail "the project differs after install + uninstall: $(diff <(echo "$BEFORE") <(echo "$AFTER") | head -6 | tr '\n' ' ')"
+strip_ansi < "$P/.uninstall.log" | grep -qE 'removed [0-9]+ · kept [0-9]+ \(edited [0-9]+, yours [0-9]+, unverified [0-9]+\)' \
+  && pass "uninstall ends with removed / kept counts" || fail "no removed / kept summary line"
+
+echo "== uninstall keeps a kit file edited since the install (F9) =="
+P="$XTMP/un-edited"
+fresh "$P"
+echo '# my own rule' >> "$P/CLAUDE.md"
+echo ' ' >> "$P/.claude/settings.json"
+( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || fail "uninstall errored"
+grep -q '# my own rule' "$P/CLAUDE.md" 2>/dev/null && pass "an edited CLAUDE.md survives" || fail "an edited CLAUDE.md was removed"
+assert_file "$P/.claude/settings.json"
+assert_absent "$P/.claude/hooks/protect-files.sh"
+strip_ansi < "$P/.uninstall.log" | grep -q 'edited' && pass "the log says what was kept as edited" || fail "no mention of the kept edited files"
+strip_ansi < "$P/.uninstall.log" | grep -qE 'settings.json.*(hook|register)' \
+  && pass "a kept settings.json is flagged: it still registers hooks that were removed" || fail "no warning about the kept settings.json"
+
+echo "== uninstall never touches settings.json in a project the kit never entered =="
+P="$XTMP/un-never"
+mkdir -p "$P/.claude" && printf '{"permissions":{}}\n' > "$P/.claude/settings.json"
+( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || fail "uninstall errored"
+assert_file "$P/.claude/settings.json"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then
