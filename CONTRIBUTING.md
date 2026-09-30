@@ -45,7 +45,7 @@ CI also runs markdown lint, a link check and `scripts/check-counts.sh`.
 
 ## Docs site
 
-`web/` is the docs site ([lucasfelipe24.github.io/agent-code-kit](https://lucasfelipe24.github.io/agent-code-kit/)), a Fumadocs project with its own `package.json` (ADR-036). Its pages are generated from the kit's sources, so edit the README, a skill or a guide, not the generated files.
+`web/` is the docs site, a Fumadocs project with its own `package.json` (ADR-036). Its pages are generated from the kit's sources, so edit the README, a skill or a guide, not the generated files.
 
 | Command (in `web/`) | What it does |
 |---|---|
