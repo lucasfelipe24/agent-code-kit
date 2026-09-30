@@ -600,6 +600,35 @@ install_file() {
   return 0
 }
 
+# tree_has_kit_file <src_dir> <rel_dir> — is at least one file of the kit's <src_dir>
+# already in the project's <rel_dir> as the kit's (recorded, or listed by the old
+# manifest)? A folder where none is belongs to the project.
+tree_has_kit_file() {
+  local src_dir="${1%/}" rel_dir="$2" f rel
+  while IFS= read -r f; do
+    rel="$rel_dir/${f#"$src_dir"/}"
+    case "$(ack_owner "$DEST" "$rel")" in
+      kit|kit-edited) return 0 ;;
+      no-record) prev_manifest_lists "$rel" && return 0 ;;
+    esac
+  done < <(find "$src_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
+  return 1
+}
+
+# upgrade_skill <src_dir> <rel_dir> — --upgrade one skill folder. Where the project
+# has a folder of that name and the record calls unlisted files the project's
+# (ADR-030), a folder with no kit file in it stays whole, as init leaves it.
+upgrade_skill() {
+  local src_dir="$1" rel_dir="$2"
+  if [ -d "$DEST/$rel_dir" ] && { [ "$RECORD_WAS_MARKED" = true ] || [ "$PRIOR_INSTALL" = false ]; } \
+     && ! tree_has_kit_file "$src_dir" "$rel_dir"; then
+    YOURS_FILES+=("$rel_dir/ (a folder of your own that shares the kit's name)")
+    return 0
+  fi
+  manifest_add "$rel_dir"
+  upgrade_tree "$src_dir" "$rel_dir"
+}
+
 # install_tree <src_dir> <rel_dir> <manifest entry> [always] — a folder of kit
 # files (a skill, hooks/lib) into a project that has the folder already. When some
 # file in it is the kit's, each kit file is placed on its own; a folder where none
@@ -607,20 +636,10 @@ install_file() {
 # no kit file mixed in. `always` skips that test: hooks/lib must be installed
 # whatever else sits in it (the hooks fail closed without it).
 install_tree() {
-  local src_dir="${1%/}" rel_dir="$2" entry="$3" f rel any=false st
-  if [ -d "$DEST/$rel_dir" ] && [ "${4:-}" != always ]; then
-    while IFS= read -r f; do
-      rel="$rel_dir/${f#"$src_dir"/}"
-      st=$(ack_owner "$DEST" "$rel")
-      case "$st" in
-        kit|kit-edited) any=true ;;
-        no-record) prev_manifest_lists "$rel" && any=true ;;
-      esac
-    done < <(find "$src_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
-    if [ "$any" = false ]; then
-      INIT_KEPT+=("$rel_dir/ (a folder of your own that shares the kit's name)")
-      return 0
-    fi
+  local src_dir="${1%/}" rel_dir="$2" entry="$3" f rel
+  if [ -d "$DEST/$rel_dir" ] && [ "${4:-}" != always ] && ! tree_has_kit_file "$src_dir" "$rel_dir"; then
+    INIT_KEPT+=("$rel_dir/ (a folder of your own that shares the kit's name)")
+    return 0
   fi
   while IFS= read -r f; do
     install_file "$f" "$rel_dir/${f#"$src_dir"/}" nomanifest
@@ -1599,8 +1618,7 @@ if [ "$PROFILE" != "minimal" ]; then
       [ -d "$skill_dir" ] || continue
       local_name=$(basename "$skill_dir")
       case "$local_name" in _*) continue ;; esac
-      manifest_add ".claude/skills/$local_name"
-      upgrade_tree "$skill_dir" ".claude/skills/$local_name"
+      upgrade_skill "$skill_dir" ".claude/skills/$local_name"
     done
   else
     for skill_dir in "$CLONE_DIR/.claude/skills/"*/; do
@@ -1727,13 +1745,15 @@ if [ "$WIKI" = true ] && [ "$PROFILE" != "minimal" ]; then
   for skill_dir in "$CLONE_DIR/wiki-module/.claude/skills/"*/; do
     [ -d "$skill_dir" ] || continue
     local_name=$(basename "$skill_dir")
-    manifest_add ".claude/skills/$local_name"
     if [ ! -d "$DEST/.claude/skills/$local_name" ]; then
+      manifest_add ".claude/skills/$local_name"
       cp -r "$skill_dir" "$DEST/.claude/skills/$local_name"
       note_added "$DEST/.claude/skills/$local_name"
       baseline_record_tree "$skill_dir" ".claude/skills/$local_name"
     elif [ "$UPGRADE" = true ]; then
-      upgrade_tree "$skill_dir" ".claude/skills/$local_name"
+      upgrade_skill "$skill_dir" ".claude/skills/$local_name"
+    else
+      manifest_add ".claude/skills/$local_name"
     fi
   done
 

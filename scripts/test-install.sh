@@ -1309,6 +1309,11 @@ grep -qxF ".claude/hooks/lib" "$BF/.kit-manifest" && pass "a re-run keeps hooks/
 echo "// mine" >> "$BF/.claude/commands.json.example"
 kit "$BF" .install3.log --profile minimal
 grep -q '// mine' "$BF/.claude/commands.json.example" && pass "an edited .example survives a re-run" || fail "a re-run overwrote an edited .example"
+# --upgrade agrees with init on a skill of the project's named like a kit skill.
+kit "$BF" .up.log --upgrade && pass "--upgrade beside the brownfield files ran clean" || fail "--upgrade failed"
+[ "$(ls -A "$BF/.claude/skills/debug")" = "SKILL.md" ] && pass "--upgrade mixed no kit file into the project's own skill" \
+  || fail "--upgrade put kit files into the project's skill: $(ls -A "$BF/.claude/skills/debug" | tr '\n' ' ')"
+[ "$(cat "$BF/.claude/agents/code-reviewer.md")" = "# mine" ] && pass "--upgrade kept the project's code-reviewer.md" || fail "--upgrade replaced code-reviewer.md"
 
 # --- S6: tasks/ that is the project's own, or kit-shaped ----------------------
 echo "== init: a foreign tasks/ is left alone, a kit-shaped one is completed =="
