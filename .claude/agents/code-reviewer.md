@@ -1,6 +1,8 @@
 ---
 name: code-reviewer
 description: Thorough code reviewer focused on correctness, maintainability, and performance
+model: sonnet
+effort: high
 ---
 
 # Code Reviewer

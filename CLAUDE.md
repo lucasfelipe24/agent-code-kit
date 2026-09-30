@@ -55,6 +55,8 @@ Match the model to the phase, not the project. Two roles:
 
 Default to Implementer. Switch to Planner for the Plan phase of any non-trivial task, then back. Long Planner sessions waste budget; long Implementer sessions miss architectural mistakes. Names of specific models age fast; the role mapping does not.
 
+The kit's own subagents pin their model in frontmatter along the same split — see `agent_docs/subagents.md → Kit agents (pinned model)`.
+
 ---
 
 ## Model vs Code

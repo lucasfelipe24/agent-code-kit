@@ -1,6 +1,8 @@
 ---
 name: dead-code-remover
 description: Removes verified unused code through static reference analysis across the entire project
+model: sonnet
+effort: medium
 ---
 
 # Dead Code Remover

@@ -39,6 +39,21 @@ Use the `Agent` tool (formerly `Task`) to spawn subagents when:
 - Use for: complex multi-step tasks that need autonomy
 - Heavier than Explore/Plan — use only when editing/execution is needed
 
+### Kit agents (pinned model)
+The kit's own agents declare `model` and `effort` in their frontmatter, so they don't inherit the parent session's model (usually the most capable, most expensive one). An explicit `model` also wins over any model-routing hook.
+
+| Agent | Model | Effort |
+|---|---|---|
+| `planner` | opus | high |
+| `security-reviewer` | opus | high |
+| `code-reviewer` | sonnet | high |
+| `devils-advocate` | sonnet | high |
+| `qa-reviewer` | sonnet | high |
+| `dead-code-remover` | sonnet | medium |
+| `wiki-maintainer` (wiki module) | sonnet | medium |
+
+To change one, edit the `model:` / `effort:` lines in `.claude/agents/<name>.md`; delete the `model:` line to let the agent inherit the session's model again.
+
 ---
 
 ## Parallelization Patterns
@@ -128,7 +143,7 @@ This is defense-in-depth for the *delegated* path; interactive, hands-on-keyboar
 
 Subagents can't see each other's context — each gets a fresh window and returns only a summary. For a chain where one agent's output feeds the next (plan → implement → review), the kit gives them one shared scratchpad: `.hook-state/agent-handoff.md`.
 
-The contract (baked into all five `.claude/agents/*` definitions):
+The contract (baked into all six `.claude/agents/*` definitions):
 
 - **On entry:** Read `.hook-state/agent-handoff.md` if present — the previous agent's ≤5-line summary.
 - **On exit:** **overwrite** it (replace, never append) with your own ≤5-line summary of what you did and what the next agent needs.

@@ -1,6 +1,8 @@
 ---
 name: planner
 description: Implementation planner that analyzes tasks, explores the codebase, and produces actionable plans
+model: opus
+effort: high
 ---
 
 # Planner

@@ -1,6 +1,8 @@
 ---
 name: wiki-maintainer
 description: Knowledge wiki maintenance agent for ingest, cross-referencing, and health checks
+model: sonnet
+effort: medium
 ---
 
 # Wiki Maintainer

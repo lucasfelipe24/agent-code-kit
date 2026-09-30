@@ -1,6 +1,8 @@
 ---
 name: qa-reviewer
 description: Evidence-based QA reviewer that verifies task completion against contracts and verification criteria
+model: sonnet
+effort: high
 ---
 
 # QA Reviewer
