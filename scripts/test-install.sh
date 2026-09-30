@@ -939,6 +939,102 @@ fresh "$P"
 cmp -s "$KIT_ROOT/examples/node-api/CLAUDE.md" "$P/CLAUDE.md" && pass "a root package.json still wins over a nested .csproj" \
   || fail "a nested .csproj overrode the root package.json"
 
+echo "== ownership classifier =="
+# ack_owner reports what .kit-baseline says about a path; install, upgrade and
+# uninstall each apply their own policy to the answer. The block lives in three
+# files because uninstall.sh and doctor.sh run standalone and cannot source lib/.
+ack_block() { sed -n '/^# >>> ack-ownership$/,/^# <<< ack-ownership$/p' "$1"; }
+ack_block "$KIT_ROOT/scripts/lib/manifest.sh" > "$XTMP/ack.lib"
+ack_block "$KIT_ROOT/uninstall.sh" > "$XTMP/ack.uninstall"
+ack_block "$KIT_ROOT/scripts/doctor.sh" > "$XTMP/ack.doctor"
+[ -s "$XTMP/ack.lib" ] && pass "manifest.sh carries the ownership block" || fail "no ownership block in scripts/lib/manifest.sh"
+cmp -s "$XTMP/ack.lib" "$XTMP/ack.uninstall" && pass "uninstall.sh's copy is identical" || fail "uninstall.sh's ownership block differs from scripts/lib/manifest.sh"
+cmp -s "$XTMP/ack.lib" "$XTMP/ack.doctor" && pass "doctor.sh's copy is identical" || fail "scripts/doctor.sh's ownership block differs from scripts/lib/manifest.sh"
+
+# owner_is <label> <want> <dest> <rel> — one classifier answer.
+owner_is() {
+  local got
+  got=$(ack_owner "$3" "$4")
+  [ "$got" = "$2" ] && pass "$1 → $2" || fail "$1: expected $2, got $got"
+}
+P="$XTMP/own"
+fresh "$P"
+owner_is "an untouched kit hook" kit "$P" .claude/hooks/protect-files.sh
+owner_is "nothing there" absent "$P" .claude/hooks/never-shipped.sh
+cp "$P/.claude/hooks/protect-files.sh" "$XTMP/protect-files.orig"
+echo '# my edit' >> "$P/.claude/hooks/protect-files.sh"
+owner_is "a kit hook edited since the install" kit-edited "$P" .claude/hooks/protect-files.sh
+mv "$XTMP/protect-files.orig" "$P/.claude/hooks/protect-files.sh"
+echo 'mine' > "$P/.claude/agents/my-agent.md"
+owner_is "the project's own agent beside the kit's" unrecorded "$P" .claude/agents/my-agent.md
+mkdir -p "$P/.claude/skills/debug-copy"
+printf '%s\t%s\n' "$(hash_of "$P/CLAUDE.md")" .claude/skills/debug-copy >> "$P/.kit-baseline"
+owner_is "a directory the record lists as a path" unverified "$P" .claude/skills/debug-copy
+ln -s ../../CLAUDE.md "$P/.claude/agents/link.md"
+printf '%s\t%s\n' "$(hash_of "$P/CLAUDE.md")" .claude/agents/link.md >> "$P/.kit-baseline"
+owner_is "a recorded link to a file" kit "$P" .claude/agents/link.md
+ln -s nowhere "$P/.claude/agents/dangling.md"
+owner_is "an unrecorded dangling link" unrecorded "$P" .claude/agents/dangling.md
+printf '%s\t%s\n' "$(hash_of "$P/CLAUDE.md")" .claude/agents/dangling.md >> "$P/.kit-baseline"
+owner_is "a recorded dangling link" unverified "$P" .claude/agents/dangling.md
+printf '#template\tfoo\n' >> "$P/.kit-baseline"
+echo 'mine' > "$P/foo"
+owner_is "a # header line never names a file" unrecorded "$P" foo
+sed 's/$/\r/' "$P/.kit-baseline" > "$XTMP/own.crlf" && cp "$XTMP/own.crlf" "$P/.kit-baseline"
+owner_is "a record written with CRLF" kit "$P" .claude/hooks/protect-files.sh
+if ( PATH="$SHIM" ack_owner "$P" .claude/hooks/protect-files.sh >"$XTMP/own.nohash" ); then
+  [ "$(cat "$XTMP/own.nohash")" = unverified ] && pass "no hash tool → unverified" || fail "no hash tool: expected unverified, got $(cat "$XTMP/own.nohash")"
+else
+  fail "ack_owner failed without a hash tool"
+fi
+
+# The realistic case: a project that already had its own agent at a kit path.
+P="$XTMP/own-brownfield"
+mkdir -p "$P/.claude/agents" && echo 'mine' > "$P/.claude/agents/code-reviewer.md"
+kit "$P" .install.log
+owner_is "the project's code-reviewer.md under a real install's record" unrecorded "$P" .claude/agents/code-reviewer.md
+rm "$P/.kit-baseline"
+owner_is "the same install with .kit-baseline removed" no-record "$P" .claude/agents/code-reviewer.md
+printf '#template\tnode-api\n' > "$P/.kit-baseline"
+owner_is "a record holding only #template" no-record "$P" .claude/agents/code-reviewer.md
+
+P="$XTMP/own-flags"
+fresh "$P"
+ack_record_complete "$P" && fail "a fresh record reads as complete before anything marks it" || pass "a record without #complete is not complete"
+printf '#complete\t1\n' >> "$P/.kit-baseline"
+ack_record_complete "$P" && pass "#complete marks the record" || fail "#complete was not read"
+sed 's/$/\r/' "$P/.kit-baseline" > "$XTMP/flags.crlf" && cp "$XTMP/flags.crlf" "$P/.kit-baseline"
+ack_record_complete "$P" && pass "#complete is read from a CRLF record" || fail "#complete lost to CRLF"
+ack_prior_install "$P" && pass "a project with a record is a prior install" || fail "a recorded project reads as first install"
+P="$XTMP/own-empty"; mkdir -p "$P"
+ack_prior_install "$P" && fail "an empty project reads as a prior install" || pass "an empty project is a first install"
+printf '# My rules\n' > "$P/CLAUDE.md"
+ack_prior_install "$P" && fail "a plain CLAUDE.md reads as a prior install" || pass "a CLAUDE.md without the kit's Session Boot is not"
+printf '# CLAUDE.md\n\n## Session Boot\n' > "$P/CLAUDE.md"
+ack_prior_install "$P" && pass "a CLAUDE.md with Session Boot is a prior install" || fail "Session Boot not recognised"
+
+echo "== the premise: a fresh install records every file it writes into a shared folder =="
+# Ownership reads absence from the record as "the project's". That only holds if
+# the installer records everything it copies, in every profile and module. The
+# check does not use the classifier, so it can fail on its own.
+premise_unrecorded() {
+  local proj="$1" f
+  ( cd "$proj" && find agent_docs scripts .claude/hooks .claude/agents .claude/skills .claude/extensions \
+      .claude/settings.json .claude/mcp-allowlist.txt.example .claude/commands.json.example WIKI.md ARTIFACTS.md \
+      -type f 2>/dev/null | grep -v '/project/' | LC_ALL=C sort ) | while IFS= read -r f; do
+    LC_ALL=C awk -F'\t' -v p="$f" '!/^#/ && $2 == p { found = 1 } END { exit found ? 0 : 1 }' "$proj/.kit-baseline" || echo "$f"
+  done
+}
+for spec in "standard:" "minimal:--profile minimal" "strict:--profile strict" "modules:--wiki --html"; do
+  name=${spec%%:*}; args=${spec#*:}
+  P="$XTMP/premise-$name"
+  # shellcheck disable=SC2086
+  fresh "$P" $args
+  missing=$(premise_unrecorded "$P")
+  [ -z "$missing" ] && pass "$name install: every shared-folder file is in the record" \
+    || fail "$name install left files out of the record: $(echo $missing)"
+done
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

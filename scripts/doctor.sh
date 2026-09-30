@@ -173,6 +173,79 @@ if [ -f "AGENTS.md" ]; then
   fi
 fi
 
+# >>> ack-ownership
+# What the install record (.kit-baseline) says about a path — facts only. Install,
+# upgrade and uninstall each apply their own policy to the answer. This block is
+# copied verbatim into uninstall.sh and scripts/doctor.sh, which run standalone
+# (curl | bash, or shipped alone into a project) and cannot source this library;
+# scripts/test-install.sh fails when the three copies differ. Edit it here, then
+# re-copy it. bash 3.2 compatible; LC_ALL=C keeps the awk byte-exact.
+
+# ack_file_hash <file> — sha256, same tool order as install.sh's file_hash; empty
+# when there is no tool or the file can't be read.
+ack_file_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" 2>/dev/null | cut -d' ' -f1 || true
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1 || true
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$1" 2>/dev/null || true
+  fi
+  return 0
+}
+
+# ack_record_files <dest> — how many file entries .kit-baseline holds. `#` header
+# lines (#template, #complete) are not files; CRs from a Windows checkout are
+# ignored.
+ack_record_files() {
+  [ -f "$1/.kit-baseline" ] || { echo 0; return 0; }
+  LC_ALL=C awk -F'\t' '{ gsub(/\r/, "") } /^#/ { next } $1 != "" && $2 != "" { n++ } END { print n + 0 }' "$1/.kit-baseline"
+}
+
+# ack_record_hash <dest> <rel> — the hash the record holds for <rel>, if any.
+ack_record_hash() {
+  [ -f "$1/.kit-baseline" ] || return 0
+  LC_ALL=C awk -F'\t' -v p="$2" '{ gsub(/\r/, "") } /^#/ { next } $2 == p { print $1; exit }' "$1/.kit-baseline"
+}
+
+# ack_owner <dest> <rel> — one word:
+#   absent      nothing at <rel>, not even a link
+#   kit         the record has <rel> and the file still has that hash
+#   kit-edited  recorded, but the file changed since
+#   unverified  recorded, but it can't be hashed (no tool, a directory, a
+#               dangling or unreadable link)
+#   unrecorded  the record has file entries, none for <rel>
+#   no-record   no .kit-baseline, or one with no file entry (ADR-023's case)
+ack_owner() {
+  local dest="$1" rel="$2" p want got
+  p="$dest/$rel"
+  if [ ! -e "$p" ] && [ ! -L "$p" ]; then echo absent; return 0; fi
+  if [ "$(ack_record_files "$dest")" -eq 0 ]; then echo no-record; return 0; fi
+  want=$(ack_record_hash "$dest" "$rel")
+  if [ -z "$want" ]; then echo unrecorded; return 0; fi
+  if [ ! -f "$p" ]; then echo unverified; return 0; fi
+  got=$(ack_file_hash "$p")
+  if [ -z "$got" ]; then echo unverified; return 0; fi
+  if [ "$got" = "$want" ]; then echo kit; else echo kit-edited; fi
+}
+
+# ack_record_complete <dest> — true when the record carries a `#complete` header:
+# it was written by a run that left it listing every file the kit put there.
+ack_record_complete() {
+  [ -f "$1/.kit-baseline" ] || return 1
+  LC_ALL=C awk -F'\t' '{ gsub(/\r/, "") } $1 == "#complete" { f = 1 } END { exit f ? 0 : 1 }' "$1/.kit-baseline"
+}
+
+# ack_prior_install <dest> — did the kit run here before? A manifest, a record, or
+# a CLAUDE.md that carries the kit's `## Session Boot`.
+ack_prior_install() {
+  [ -f "$1/.kit-manifest" ] && return 0
+  [ -f "$1/.kit-baseline" ] && return 0
+  [ -f "$1/CLAUDE.md" ] || return 1
+  LC_ALL=C awk '/^## Session Boot/ { f = 1 } END { exit f ? 0 : 1 }' "$1/CLAUDE.md"
+}
+# <<< ack-ownership
+
 # Instruction-file size budget — keep CLAUDE.md thin (the kit's thesis) and
 # AGENTS.md under Codex's 32 KiB truncation point. Non-blocking.
 check_instruction_size() {  # file budget_kib label
