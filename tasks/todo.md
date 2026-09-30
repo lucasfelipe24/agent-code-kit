@@ -944,7 +944,7 @@ Everything earlier is in `CHANGELOG.md`.
 
 Parked scope — deferred work, revisit when prioritized. (CLAUDE.md → Scope Discipline routes out-of-scope items here.)
 
-- **Uninstall deletes overlay files the project had before the kit** — `CLAUDE.project.md`, `agent_docs/project/`, `.claude/hooks/project/` are removed by default (warned in the listing) even when the kit only found them; only remove what the kit created. _(deferred from the PR B review; predates R1)_
+- **Uninstall without a matching kit copy keeps untouched templates** — `cat uninstall.sh | bash` or a newer `@latest` uninstall can't compare the overlay/artifact templates and keeps them as "yours"; recording their hashes in `.kit-baseline` would fix it. Also: the empty-dir pass drops user-made empty folders under `wiki/`, `raw-sources/`, `artifacts/`, `project/` without listing them; `WIKI_SEED_*` duplicates install.sh's seed text. _(deferred from the R2 PR A review; the overlay-deletion item itself is fixed by PR A)_
 - **Uninstall leftovers from the PR A review (R1)** — `kit_leftover` is still a second, simpler classifier next to `ack_owner`; the kept-`settings.json` warning doesn't name the hook entries; `VERSION` is always removed; `CLAUDE.md.kit-new` is never swept; the `tasks/` empty-dir pass also removes the project's own empty folders. _(deferred from the PR A adversarial review)_
 
 - **Multi-language test-runner detection** beyond Python/Node/Go/Rust (Ruby, Java, etc.) — the quality gate detects a fixed runner set today. _(deferred from the hook-shift work)_
