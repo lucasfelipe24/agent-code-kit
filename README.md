@@ -34,6 +34,7 @@
   <a href="#-demo">Demo</a> ·
   <a href="#-quick-start">Quick start</a> ·
   <a href="#-how-it-works">How it works</a> ·
+  <a href="#-workflows">Workflows</a> ·
   <a href="#-skills-and-agents">Skills</a> ·
   <a href="#-configuration">Configuration</a> ·
   <a href="#-faq">FAQ</a>
@@ -81,6 +82,20 @@ Claude Code is capable, but eager. Left alone, it will:
 
 A prompt that says "don't do that" helps — until the model skips it. Agent Code Kit ships the rules **and** the enforcement behind them.
 
+| | A hand-written `CLAUDE.md` | With the kit |
+|---|---|---|
+| **Rules** | Whatever you remembered to write | A tested workflow: plan, confirm, implement, verify |
+| **When Claude forgets a rule** | Nothing happens | A hook blocks the action and tells Claude why |
+| **"Done"** | Whenever Claude says so | Blocked while the typecheck or lint of any edited file is failing |
+| **Dependencies, schema, auth** | Up to the model | Stopped until you approve; your choice is recorded as a decision |
+| **Your corrections** | Gone when the session ends | Saved as lessons; the most important load in every session |
+| **After a compaction or a new session** | Claude starts over | The active plan, top lessons and your notes come back on their own |
+| **Reviews, audits, releases** | A new prompt each time | 37 skills and 6 subagents, each with a fixed process |
+
+**It's a good fit if you** use Claude Code on a real codebase — new or one you've had for years — and you're responsible for what it ships; want the same rules for everyone on the team, committed with the code; or let Claude run on its own for longer stretches (auto mode, `/loop`) and need limits it can't talk its way past.
+
+**It's probably not worth it if** you only use Claude Code for one-off scripts, or you're on Windows without WSL.
+
 ## 🚀 Quick start
 
 ### Prerequisites
@@ -126,18 +141,33 @@ Pass the same options after `bash -s --`, for example `| bash -s -- --profile st
 
 3. **Start Claude Code** as usual. There's no new command to learn — the rules and hooks are already active.
 
+Every CLI command is listed under [Guides and commands](#guides-and-commands).
+
 ## 🧩 How it works
 
-The kit adds four layers to your project:
-
-| Layer | What it is | What it does |
-|---|---|---|
-| **Rules** | `CLAUDE.md` | A fixed workflow — plan, confirm, implement, verify — that Claude follows in every session |
-| **Guardrails** | 28 hooks that Claude Code runs on each action | Block what the rules forbid: editing secrets, pushing to `main`, finishing while a check fails |
-| **Skills & agents** | 37 skills and 6 subagents | Audits, debugging, reviews and releases — run when you ask |
-| **Memory** | `tasks/` | The plan, decisions, lessons and handoffs that carry over between sessions |
+The kit adds four layers to your project: **rules** (`CLAUDE.md`), **guardrails** (hooks Claude Code runs on each action), **skills and agents**, and **memory** (`tasks/`). [Features](#-features) lists everything in each.
 
 Rules are advice. Hooks are enforcement: they run outside the model, on every matching action, whether or not it remembers the rule.
+
+## 🎁 Features
+
+Everything the kit adds, and what each part is for:
+
+| Feature | What you get | Why it helps |
+|---|---|---|
+| [**Workflow rules**](#-the-rules) | `CLAUDE.md`: plan first, scope discipline, protected changes, verification, lessons | Claude works the same way in every session, on every machine |
+| [**Guardrails**](#-guardrails) | 28 hooks — 23 on by default, 5 opt-in | The rules hold even when the model forgets them |
+| [**Session automation**](#-a-session-with-the-kit) | Context put back at every start and after every compaction; a handoff saved at the end | No re-explaining the task after a `/clear` or a compaction |
+| [**Workflows**](#-workflows) | Skills that chain from idea to pull request | A known path for features, bugs, reviews and releases |
+| [**Skills**](#-skills-and-agents) | 37 slash commands for planning, debugging, audits, reviews, releases and reports | A repeatable process instead of an improvised prompt |
+| [**Subagents**](#-skills-and-agents) | 6 specialists: code review, security, QA, planning, adversarial review, dead code | A second opinion with a narrow brief and its own context |
+| [**Project memory**](#files-the-kit-writes-as-you-work) | `tasks/`: plan, decisions, lessons, handoffs, specs, reviews, reports | Decisions and corrections outlast the session and live in git with the code |
+| [**Guides**](#guides-and-commands) | 12 guides in `agent_docs/`, read only when a task needs them | Deep guidance without paying for it in every prompt |
+| [**Stack templates**](#stack-templates) | 7 stacks, detected at install | Stack rules and a pre-filled project map from day one |
+| [**Optional modules**](#optional-modules) | Knowledge wiki, HTML artifacts, a local-only install | Add only what you use |
+| [**Other AI tools**](#-other-ai-tools) | Export to Cursor, Windsurf, Aider, Codex and `AGENTS.md` | One set of rules across your tools |
+| [**Safe upgrades**](#-upgrade) | A per-file install record, previews, `.kit-new` copies and backups | Upgrades update only untouched kit files; uninstall removes only what the kit wrote |
+| [**Tested**](#-run-tests) | A regression harness run on Linux and macOS | Every guardrail is checked on every change to the kit |
 
 ## 📏 The rules
 
@@ -145,12 +175,15 @@ Rules are advice. Hooks are enforcement: they run outside the model, on every ma
 
 | Rule | What Claude does |
 |---|---|
-| **Plan first** | For changes across 3+ files, writes a plan to `tasks/todo.md` and waits for your go-ahead |
-| **Scope discipline** | Touches only what the task needs; logs anything else it notices under "Not Now" |
+| **Plan first** | For changes across 3+ files, restates your request as a goal it can check ("fix the bug" → "write a test that reproduces it, then make it pass"), writes a plan to `tasks/todo.md` and waits for your go-ahead |
+| **Scope discipline** | Touches only what the task needs, matches the style of the files it edits, and logs anything else it notices under "Not Now" |
 | **Protected changes** | Stops before new dependencies, schema, API, auth or build changes; presents options and records your choice as a decision |
-| **Verification** | Runs typecheck, lint, tests and a smoke test, in that order, before calling a task done |
+| **Verification** | Runs typecheck, lint, tests and a smoke test, in that order, before calling a task done — and when it processes a batch, reports how many items failed or were skipped |
 | **Lessons** | When you correct it, writes a lesson to `tasks/lessons/` and reviews the top rules at the start of each session |
 | **Tiered context** | Loads the project map every session, the plan and handoff only when continuing, and lessons and decisions only when relevant |
+| **After a compaction** | Re-reads the plan, the files it was editing and your notes before it writes another line |
+| **Model per phase** | Plans and debugs with the most capable model, implements with a faster one |
+| **Model vs code** | Leaves deterministic work — parsing, retries, format conversions, lookups — to code instead of the model |
 
 Put your own rules in `CLAUDE.project.md` — they override the kit's.
 
@@ -158,19 +191,127 @@ Put your own rules in `CLAUDE.project.md` — they override the kit's.
 
 Hooks are shell scripts Claude Code runs at fixed points: before a tool call, after an edit, when Claude tries to finish. A blocking hook stops the action and tells Claude why.
 
-| Hook | What it blocks |
-|---|---|
-| `protect-files` | Edits to `.env` files, credentials, private keys and lock files |
-| `protect-changes` | Edits to dependency manifests, migrations, auth code and CI workflows until you've approved the change |
-| `branch-protect` | Pushes to `main`/`master`, and force pushes |
-| `block-dangerous-commands` | `rm -rf /`, `git reset --hard`, `DROP TABLE` and similar |
-| `conventional-commit` | Commit messages that don't follow [Conventional Commits](https://www.conventionalcommits.org/) |
-| `quality-gate` + `stop-gate` | Finishing while the typecheck, lint or syntax check of an edited file is failing |
-| `mcp-gate` | Calls to MCP servers that aren't on your allowlist (off until you create `.claude/mcp-allowlist.txt`) |
+### All hooks
 
-The default profile turns on 23 of the 28 hooks. The ones not listed above watch instead of block: they warn about secrets and invisible Unicode in edits, spot edit loops and oversized tool output, re-inject your plan after a context compaction, and keep a session log for `/scorecard`. After install, `agent_docs/hooks.md` describes every hook and how to write your own.
+**Block** — stop the action and tell Claude why
+
+| Hook | Runs | What it does |
+|---|---|---|
+| `protect-files` | Before edits and `git add` | Blocks editing `.env` files, credentials, private keys and lock files, and staging any of them except lock files |
+| `protect-changes` | Before edits and shell commands | Blocks dependency manifests, migrations, auth code, CI workflows and dependency installs until you approve |
+| `branch-protect` | Before shell commands | Blocks pushes to `main`/`master` and force pushes |
+| `block-dangerous-commands` | Before shell commands | Blocks `rm -rf /`, `git reset --hard`, `DROP TABLE` and similar |
+| `conventional-commit` | Before shell commands | Blocks commit messages that don't follow [Conventional Commits](https://www.conventionalcommits.org/) |
+| `mcp-gate` | Before MCP tool calls | Blocks MCP servers that aren't on `.claude/mcp-allowlist.txt` (off until you create it) |
+| `stop-gate` | When Claude tries to finish | Blocks while an edited file's check is failing, timed out or older than the file |
+| `loop-detect` | After edits | Warns when the same file shows up 4 times in the last 10 edits, and blocks at the 6th |
+
+The default profile turns on 23 of the 28 hooks. The rest check, add context or keep records instead of blocking, or are opt-in:
+
+<details>
+<summary>The hooks that check, add context, observe or are opt-in</summary>
+
+**Check** — run after each edit and report back
+
+| Hook | Runs | What it does |
+|---|---|---|
+| `quality-gate` | After edits | Runs the file's typecheck, lint or syntax check and records the result for `stop-gate` |
+| `secret-scan` | After edits | Warns about secrets written into a file: API keys, tokens, private keys, passwords |
+| `unicode-scan` | After edits | Warns about invisible Unicode that can hide code |
+
+**Context** — give Claude the right information at the right time
+
+| Hook | Runs | What it does |
+|---|---|---|
+| `session-start` | At session start and after a compaction | Points Claude to the project map, the top lessons, the active task and the branch; after a compaction, also the task contract and the `/note` journal |
+| `prompt-router` | On each prompt | Adds a rule reminder when you mention auth, billing, migrations, deploys or dependencies |
+| `glob-guidance` | Before edits | The first edit to a test or migration file brings the guidance for that kind of file |
+| `bash-budget`, `read-budget` | After shell commands and file reads | Warns once when the session's output passes a token budget |
+| `journal-fold` | At session end | Saves the `/note` journal and the subagent handoff to `tasks/handoff-<session>.md` |
+
+**Observe** — record what happened, for `/scorecard`
+
+| Hook | Runs | What it does |
+|---|---|---|
+| `session-end` | At session end | Writes a scorecard line to `.hook-state/session-audit.log` |
+| `subagent-pre`, `subagent-post` | Around each subagent | Log which agent ran and for how long |
+| `tool-failure-observe` | After a failed tool call | Counts failures per tool |
+| `stop-failure-observe` | When a turn ends on an API error | Records rate limits and server errors |
+| `task-complete-notify` | When Claude finishes | Sends a desktop notification (macOS, Linux) |
+
+**Opt-in** — on in the strict profile, or add them yourself
+
+| Hook | Runs | What it does |
+|---|---|---|
+| `auto-format` | After edits | Runs your formatter |
+| `auto-lint` | After edits | Runs your linter |
+| `skill-compliance` | After edits | Reminds Claude to check the active skills' checklists |
+| `skill-extract-reminder` | On each prompt | Reminds Claude to turn something new it learned into a skill |
+| `notify-waiting` | When Claude is waiting for you | Sends a push notification (ntfy or Pushover) |
+
+</details>
+
+After install, `agent_docs/hooks.md` describes every hook and how to write your own.
 
 The hooks are tested — see [Run tests](#-run-tests).
+
+## 🔁 A session with the kit
+
+What runs, and when, without you typing a command:
+
+| When | What happens |
+|---|---|
+| **The session starts** | Claude gets pointers to your project map, the top lessons, the active task in `tasks/todo.md` and the current branch |
+| **You send a prompt** | Mention auth, billing, a migration, a deploy or a new dependency, and Claude gets a short reminder of the rules that apply |
+| **Before an edit** | Secrets, lock files and unapproved protected changes are blocked; the first edit to a test or migration file brings up the guidance for that kind of file |
+| **Before a shell command** | Pushes to `main`, destructive commands, dependency installs and commit messages are checked |
+| **After an edit** | The file's typecheck or lint runs and the result is recorded; the edit is scanned for secrets and invisible Unicode; a file edited 4 times in the last 10 edits gets a loop warning, and a 6th edit is blocked |
+| **Claude tries to finish** | Blocked while any edited file's check is failing, timed out or older than the file |
+| **The context is compacted** | The active task, top lessons, any task contract and your `/note` entries are put back |
+| **The session ends** | A scorecard line is written for `/scorecard`, and your `/note` findings and decisions are saved to `tasks/handoff-<session>.md` for the next session |
+
+## 🧭 Workflows
+
+The skills are built to chain. Some common paths:
+
+### Build a feature
+
+1. `/office-hours` — pin down what to build and why, while the idea is still fuzzy.
+2. `/shape-spec` — create a spec folder, when the work will span several sessions.
+3. Ask for the change. Claude restates it as a goal it can check, writes the plan to `tasks/todo.md` and waits for your go-ahead.
+4. Claude implements; every edit is checked as it's made.
+5. `/review-pipeline` — parallel audits over the diff, before you merge.
+6. `/ship` — tests, changelog, clean commits and the pull request.
+
+`/feature-cycle` runs steps 2–6 in one go and stops at the first failed gate.
+
+### Fix a bug
+
+`/debug` reproduces the bug and gathers evidence until it finds the root cause, fixes it, then adds a regression test that fails without the fix.
+
+### Review a change
+
+`/review-pipeline` runs several audits over the diff in parallel and merges their findings into one report. When you want someone to try to break the change, ask for the `devils-advocate` agent.
+
+### Work across sessions
+
+The plan in `tasks/todo.md` and the decisions in `tasks/decisions.md` outlast any session. `/note` saves a finding or decision mid-session: it survives a compaction and is saved to a handoff when the session ends, so the next one picks up where you stopped.
+
+### Adopt it in an existing project
+
+1. Run `init`. Your own `CLAUDE.md`, `.claude/settings.json`, hooks, agents and scripts stay as they are, and the installer lists what it left alone.
+2. Kept your own `settings.json`? Register the kit's hooks in it — `doctor` fails until you do.
+3. Kept your own `CLAUDE.md`? Move your rules into `CLAUDE.project.md` to switch on the kit's (see the [FAQ](#-faq)).
+4. Fill in `CODEBASE_MAP.md`. `/constitution` can infer your coding principles from the existing code into `golden-principles.yaml`, and `/quality-audit` then checks the code against them.
+
+### Keep an eye on it
+
+| When | Skill | What it tells you |
+|---|---|---|
+| Weekly | `/pulse` | What shipped, broke and was learned, saved to `tasks/pulses/` as a timeline |
+| Weekly | `/retro` | How the work went: sessions, volume, hotspots, what to change |
+| Any time | `/scorecard` | Session numbers: gate pass rate, blocks fired, output budget |
+| Every few weeks | `/lesson-refresh` | Which lessons to keep, sharpen, promote or archive |
 
 ## 🧰 Skills and agents
 
@@ -286,6 +427,75 @@ Everything goes into your project directory, where you can read and edit it. Not
 | `.kit-manifest`, `.kit-baseline` | What the kit installed, so upgrades and uninstall touch only its files | Rewritten |
 
 If your project already has a `CLAUDE.md` or `CODEBASE_MAP.md`, the installer keeps yours and asks before continuing.
+
+### How a project is organized
+
+```text
+your-project/
+├── CLAUDE.md            # the workflow rules (the kit's)
+├── CLAUDE.project.md    # your own rules; they override the kit's
+├── CODEBASE_MAP.md      # your project map, read every session
+├── agent_docs/          # guides Claude reads on demand; project/ is yours
+├── .claude/
+│   ├── settings.json    # which hooks run; allow and deny lists for commands
+│   ├── hooks/           # the 28 hooks; project/ is yours
+│   ├── skills/          # the 37 skills
+│   ├── agents/          # the 6 subagents
+│   └── extensions/      # skills from other authors
+├── scripts/             # doctor, validate, statusline, convert and other helpers
+├── tasks/               # plan, decisions, lessons, handoffs, specs, reports
+└── .hook-state/         # the hooks' working state (ignored by git)
+```
+
+### Files the kit writes as you work
+
+| File | Written by | What it's for |
+|---|---|---|
+| `tasks/todo.md` | Claude, when it plans | The plan of record: the current task, its steps, and "Not Now" for everything out of scope |
+| `tasks/decisions.md` | Claude, after you approve a protected change | Architecture decisions (ADRs), with the options you weighed |
+| `tasks/lessons/` | Claude, after you correct it | One lesson per file; `_index.md` holds the top rules loaded every session, and `/lesson-refresh` moves stale ones to `_archive/` |
+| `tasks/handoff-<session>.md` | `journal-fold`, at session end | Where the next session picks up |
+| `tasks/specs/<date>-<name>/` | `/shape-spec` | Spec, decisions and references for a feature that spans sessions |
+| `tasks/*_CONTRACT.md` | You or Claude | A task's completion criteria, checked by `qa-reviewer` |
+| `tasks/reviews/` | `/review-pipeline` | The merged review report, when you choose to save it |
+| `tasks/pulses/`, `tasks/retros/` | `/pulse`, `/retro` | Periodic reports that build into a timeline (`/retro` asks before creating its folder) |
+| `.claude/golden-principles.yaml` | `/constitution` | Your coding principles, which `/quality-audit` checks |
+| `docs/` | `/harness-init`, `/quality-audit`, `/references-sync` | Architecture docs, the quality score and local copies of library docs |
+| `.hook-state/` | The hooks | Session state: gate results, the verification ledger, the session log, the `/note` journal, budgets |
+| `<file>.kit-new`, `.kit-backup/` | `--upgrade`, `uninstall` | The kit's newer version of a file you edited; copies saved before a replace or a removal |
+
+### Guides and commands
+
+<details>
+<summary>The 12 guides in <code>agent_docs/</code></summary>
+
+| Guide | Covers |
+|---|---|
+| `workflow.md` | Task lifecycle, goal reframing, the plan template, session strategy, context hygiene |
+| `debugging.md` | The debugging protocol: evidence before a fix |
+| `testing.md` | What and how to test |
+| `conventions.md` | Code conventions and matching the existing style |
+| `hooks.md` | Every hook, the profiles, and how to write your own |
+| `skills.md` | Using skills and extending them |
+| `subagents.md` | When and how to hand work to a subagent |
+| `worktrees.md` | Isolating parallel agents that edit files |
+| `auto-mode.md` | Running unattended safely, and when to stop and ask |
+| `contracts.md` | Completion criteria for a task |
+| `prompting.md` | Prompting and bias awareness |
+| `architecture-language.md` | The vocabulary behind `/deepening-review` and `/interface-design` |
+
+</details>
+
+Every command runs as `npx @lucasfelipe23/agent-code-kit <command>`:
+
+| Command | What it does |
+|---|---|
+| `init` | Installs the kit; `--upgrade`, `--diff`, `--profile`, `--template`, `--wiki`, `--html` and `--gitignore` change how |
+| `doctor` | Checks the files, the settings and the hook wiring, then self-tests the hooks |
+| `skills` | Lists the skills from the terminal |
+| `convert <tool>` | Exports the rules to another AI tool |
+| `generate agents-md` | Writes a portable `AGENTS.md` |
+| `uninstall` | Removes what the kit installed, after you confirm |
 
 ## 🔧 Configuration
 
