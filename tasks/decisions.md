@@ -68,7 +68,7 @@ Track important technical decisions here so they don't get lost between sessions
 
 ### ADR-033: How an install migrates to layout 2
 - **Date**: 2026-09-30
-- **Status**: proposed
+- **Status**: accepted
 - **Context**: R2 moves the records, `VERSION`, docs, scripts, templates, module schemas, hooks and agents (ADR-031). Every known install is on v1.23.0 or earlier — or on unreleased `main` via `curl | bash` — and release PR #11 (`1.24.0`) stays open until R2 ships, so the migrator meets unmarked v1.23.0 records whose manifests list the project's own files (N1), marked R1 records, and records deleted by hand. shape.md Decision 10 chose no journal; Decision 16 a hard cut. The move lands in four PRs, each live on `main` for `curl | bash` users, so an install may be migrated in several steps. A migration must survive a cut run, be previewed by `--diff` exactly (ADR-021), and never move or lose a file that isn't the kit's (Decision 4, ADR-023, ADR-030).
 - **Options**:
   - A) Plan per file with the R1 classifier, apply in repeatable phases, read the state back from disk, one map row at a time — Pros: no second record to drift; a re-run is the recovery; the map can grow PR by PR; the plan is testable before any installer calls it. / Cons: every phase must be idempotent; a half-migrated row must be recognisable from disk alone.

@@ -9,13 +9,14 @@ the first one and injects it as the session's active task.
 
 ## In Progress
 
-### R2 — kit folder and layout cut (plan revised 2026-09-30 after the maintainer's answers; no code yet)
+### R2 — kit folder and layout cut (plan approved 2026-09-30; start at PR A)
 
 Spec: `tasks/specs/2026-09-28-brownfield-install/` → R2. Answered 2026-09-30:
 Q1 = full layout (ADR-031, accepted), Q2 = python3 (ADR-032, accepted), Q3 =
 mirror the installed layout in this repo (ADR-035, accepted), Q4 = defer
 `module.conf` (ADR-034, accepted), Q5–Q10 as recommended (Q7 changed: one
-release, below). Still open: ADR-033 (migration design) — PR C needs it.
+release, below). Plan and ADR-033 (migration design, accepted) approved by the
+maintainer 2026-09-30, with the recommended agent-collision sub-rules.
 
 #### Goal
 
@@ -146,7 +147,7 @@ are reported, never rewritten.
 
 Open:
 
-- **ADR-033** (migration design) — needs approval before PR C.
+- **ADR-033** (migration design) — accepted 2026-09-30.
 - **Agent name collisions** — ADR-031 records the default the coordinator asked
   for (the project's agent wins; the kit's isn't installed; reported). Confirm
   the two sub-rules: a project file with no `name:` counts by its stem, and a
@@ -370,7 +371,7 @@ R1 lessons that bind every step:
 - Verify: `bash scripts/test-install.sh`, markdownlint. Rollback: revert.
 - PR B gate.
 
-##### S8 — The record can live in either layout (PR C, needs ADR-033)
+##### S8 — The record can live in either layout (PR C)
 
 - Files: ownership block `scripts/lib/manifest.sh:134-205`, re-copied into
   `uninstall.sh` and `doctor.sh`; tests `:1121-1196`.
@@ -661,7 +662,7 @@ name a moved path), plus the new migrator, merge engine and two test suites.
 
 #### Protected changes and repo obligations
 
-- ADR-031, ADR-032, ADR-034, ADR-035 accepted; ADR-033 before PR C.
+- ADR-031, ADR-032, ADR-033, ADR-034, ADR-035 accepted.
   `package.json` (`files`, `scripts`) and `.github/workflows/validate.yml` trip
   `protect-changes.sh`: `CLAUDE_APPROVED=1` after the ADR.
 - `sync-manifest.sh --check`, `check-scaffold.sh`, `check-counts.sh` (159 from
@@ -673,7 +674,7 @@ name a moved path), plus the new migrator, merge engine and two test suites.
 
 - No new packages: bash 3.2, awk, a sha256 tool, git; python3 for merge,
   rewrite and `--diff`, as today.
-- ADR-033 before PR C; PR C before D1; D1 before D2–D4; G1 before D2 merges;
+- PR C before D1; D1 before D2–D4; G1 before D2 merges;
   G2 and G3 before D4 merges. B in parallel with C.
 
 #### Risks
@@ -896,7 +897,7 @@ references: `tasks/specs/2026-09-28-brownfield-install/`.
 
 Four releases, each starting with a plan approved here: R1 fixes in the current
 layout (shipped to `main` — see Done), R2 `.claude/kit/` + migration (planned,
-ADR-031/032/034/035 accepted, ADR-033 open — see In Progress), R3 `CLAUDE.md`
+ADR-031 to ADR-035 accepted — see In Progress), R3 `CLAUDE.md`
 managed block, R4 adoption. R2–R4 are protected changes and need ADRs. The
 Playbook's `--playbook` module (its phase 3) waits for R2 and starts with
 `module.conf` (ADR-034).
