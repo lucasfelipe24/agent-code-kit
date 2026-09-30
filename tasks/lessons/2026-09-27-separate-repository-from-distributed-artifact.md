@@ -1,7 +1,7 @@
 ---
 title: Separate repository access from distributed artifact access
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-30
 tags: [distribution, privacy, requirements]
 problem_type: process
 source: correction
@@ -12,7 +12,7 @@ related: []
 supersedes: []
 applies_to: [scope-discipline, deploy]
 contradicts: []
-related_decisions: []
+related_decisions: [adr-025, adr-028]
 ---
 
 ## Issue
@@ -25,7 +25,9 @@ The request was interpreted as requiring secrecy from authorized users rather th
 
 ## Rule
 
-When discussing private-source distribution, first preserve the existing product and delivery model. Distinguish repository privacy from artifact visibility, and recommend publishing the existing curated artifact to a public package registry when users may inspect installed runtime files but must not access the source repository.
+Preserve the existing product and delivery model first. When a request is about access, separate who can reach the source repository from who can reach the distributed artifact, and answer within the current model before proposing to change the registry, workflow, license or installation. If the answer needs a change to any of those, present it as an option with its cost, not as the plan.
+
+Context has since moved: the repository became public (ADR-025) and npm publishing is opt-in (ADR-028). The rule stands as scope discipline; its original recommendation, publishing the curated artifact to a public registry, no longer applies to this repo.
 
 ## Verification
 
