@@ -224,6 +224,280 @@ ack_prior_install() {
 }
 # <<< ack-ownership
 
+# >>> ack-settings
+# Merge, strip and rewrite the kit's hook entries in a project's settings.json
+# by owner (ADR-032). Bash supplies the facts (which hook paths are the kit's),
+# python3 applies the policy. This block is copied verbatim into uninstall.sh;
+# scripts/test-install.sh fails when the two copies differ. Edit it in install.sh,
+# then re-copy it.
+#
+#   ack_settings <mode> <file> <kit_settings> <kit_hooks> <records> [old=new...]
+#
+#   mode          plan | merge | strip | rewrite (plan writes nothing)
+#   file          the project's settings.json (settings.local.json beside it is
+#                 only read, for "already registered")
+#   kit_settings  the kit's settings.json for the profile ("" for strip/rewrite)
+#   kit_hooks     a file listing the hook paths the ownership classifier calls
+#                 the kit's, one per line (strip: the hooks being removed;
+#                 rewrite: the paths being replaced)
+#   records       .kit-baseline — its `#hook` lines are the per-entry records
+#                 (event, matcher or -, path, sha256 of the entry as the kit wrote it)
+#
+# One TSV line per finding: add | update | remove | current | edited | present
+# | yours | rewrite | env | note | manual, then `record` lines for the entries
+# that are the kit's after the run and `created` lines for the keys the kit made
+# (to write back as #hook and #hookkey header lines). Exit 0
+# whatever happens to the file; 3 when python3 is missing. A file that isn't
+# strict JSON is never written: the line is `manual`.
+ack_settings() {
+  python3 -c 'import hashlib, json, re' >/dev/null 2>&1 || return 3
+  python3 - "$@" <<'PY'
+import hashlib, json, os, re, sys
+
+mode, path, kit_path, hooks_path, rec_path = sys.argv[1:6]
+pairs = [a.split("=", 1) for a in sys.argv[6:] if "=" in a]
+# A hook path counts only as the project's own: bare, ./-prefixed or under
+# $CLAUDE_PROJECT_DIR — never ~/.claude/... or /opt/x/.claude/... (LOOSE). An
+# entry is the kit's only when the whole command is that one path (STRICT), so
+# `hook.sh --flag` or a chain of two scripts is the project's.
+PROJ = r"(?:(?<![\w./~-])|(?<=\./)|(?<=\$CLAUDE_PROJECT_DIR/)|(?<=\$CLAUDE_PROJECT_DIR\"/)|(?<=\$\{CLAUDE_PROJECT_DIR\}/)|(?<=\$\{CLAUDE_PROJECT_DIR\}\"/))"
+HOOK = r"\.claude/hooks/[A-Za-z0-9_./-]+?\.sh"
+LOOSE_RE = re.compile(PROJ + "(" + HOOK + ")(?![A-Za-z0-9_./-])")
+STRICT_RE = re.compile(r'^(?:\./)?(?:"?\$\{?CLAUDE_PROJECT_DIR\}?"?/)?(' + HOOK + r')"?$')
+
+def out(*f):
+    print("\t".join(str(x) for x in f))
+
+def load(p):
+    with open(p, encoding="utf-8") as fh:
+        text = fh.read()
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+    return text, data
+
+def lines(p):
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return [l.rstrip("\r\n") for l in fh]
+    except OSError:
+        return []
+
+def sha(matcher, hook):
+    blob = json.dumps({"matcher": matcher, "hook": hook}, sort_keys=True,
+                      separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+def entries(data, strict=True):
+    # (event, group index, handler index, matcher, hook path, handler)
+    found = []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return found
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            continue
+        for gi, g in enumerate(groups):
+            if not isinstance(g, dict) or not isinstance(g.get("hooks"), list):
+                continue
+            for hi, h in enumerate(g["hooks"]):
+                if not isinstance(h, dict):
+                    continue
+                cmd = str(h.get("command", "")).strip()
+                m = STRICT_RE.match(cmd) if strict else LOOSE_RE.search(cmd)
+                if m:
+                    found.append((event, gi, hi, g.get("matcher"), m.group(1), h))
+    return found
+
+def drop(data, event, gi, hi):
+    # Remove one handler, and the group it leaves empty.
+    groups = data["hooks"][event]
+    groups[gi]["hooks"].pop(hi)
+    if not groups[gi]["hooks"]:
+        groups.pop(gi)
+
+def prune(data):
+    # Only keys the kit created are taken out again; an empty "hooks" or event
+    # the project had stays.
+    hooks = data.get("hooks")
+    if isinstance(hooks, dict):
+        for event in list(hooks):
+            if hooks[event] == [] and "hooks/" + event in created:
+                del hooks[event]
+        if not hooks and "hooks" in created:
+            del data["hooks"]
+    if data.get("env") == {} and "env" in created:
+        del data["env"]
+
+def indent_of(text):
+    for line in text.split("\n"):
+        m = re.match(r"^([ \t]+)\S", line)
+        if m:
+            return "\t" if m.group(1)[0] == "\t" else len(m.group(1))
+    return 2
+
+def dump(data, ind, text):
+    return json.dumps(data, indent=ind, ensure_ascii=False) + ("\n" if text.endswith("\n") else "")
+
+try:
+    text, data = load(path)
+except (OSError, ValueError) as e:
+    out("manual", "not strict JSON, or unreadable" if isinstance(e, ValueError) else "unreadable")
+    sys.exit(0)
+
+before = json.dumps(data, sort_keys=False)
+try:
+    ind = indent_of(text)
+    kit_paths = set(l for l in lines(hooks_path) if l)
+    records = {}
+    created = set()
+    for l in lines(rec_path):
+        f = l.split("\t")
+        if len(f) == 5 and f[0] == "#hook":
+            records[(f[1], f[2], f[3])] = f[4]
+        elif len(f) == 2 and f[0] == "#hookkey":
+            created.add(f[1])
+    mkey = lambda m: "-" if m is None else m
+
+    if mode in ("plan", "merge"):
+        try:
+            _, kit = load(kit_path)
+        except (OSError, ValueError):
+            out("manual", "the kit's settings could not be read")
+            sys.exit(0)
+        local = {}
+        try:
+            _, local = load(os.path.join(os.path.dirname(path), "settings.local.json"))
+        except (OSError, ValueError):
+            pass
+        mine = entries(data)
+        registered = set(e[4] for e in entries(data, False)) | set(e[4] for e in entries(local, False))
+        if "hooks" in data and not isinstance(data["hooks"], dict):
+            out("manual", "\"hooks\" is not an object")
+            sys.exit(0)
+        kit_keys = set()
+        final = {}
+        for event, gi, hi, m, p, h in entries(kit):
+            if p not in kit_paths:
+                continue
+            key = (event, mkey(m), p)
+            kit_keys.add(key)
+            want = sha(m, h)
+            have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
+            if have:
+                e = have[0]
+                got = sha(e[3], e[5])
+                rec = records.get(key)
+                if got == want:
+                    out("current", event, p); final[key] = want
+                elif rec and got == rec:
+                    data["hooks"][event][e[1]]["hooks"][e[2]] = json.loads(json.dumps(h))
+                    out("update", event, p); final[key] = want
+                else:
+                    out("edited", event, p)
+                    if rec:
+                        final[key] = rec
+            elif p in registered:
+                out("present", event, p)
+            else:
+                group = {"hooks": [json.loads(json.dumps(h))]}
+                if m is not None:
+                    group = {"matcher": m, **group}
+                if "hooks" not in data:
+                    created.add("hooks")
+                if event not in data.get("hooks", {}):
+                    created.add("hooks/" + event)
+                data.setdefault("hooks", {}).setdefault(event, []).append(group)
+                mine = entries(data)
+                out("add", event, p); final[key] = want
+        for key, rec in records.items():
+            if key in kit_keys:
+                continue
+            event, m, p = key
+            have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
+            if have and sha(have[0][3], have[0][5]) == rec:
+                e = have[0]
+                drop(data, event, e[1], e[2])
+                mine = entries(data)
+                out("remove", event, p)
+        prune(data)
+        kit_env = kit.get("env")
+        if isinstance(kit_env, dict):
+            env = data.get("env") if isinstance(data.get("env"), dict) else {}
+            lenv = local.get("env") if isinstance(local.get("env"), dict) else {}
+            for k, v in kit_env.items():
+                if k.startswith("ACK_") and k not in env and k not in lenv:
+                    if "env" not in data:
+                        created.add("env")
+                    created.add("env:" + k)
+                    data.setdefault("env", {})[k] = v
+                    out("env", k)
+        for (event, m, p), s in sorted(final.items()):
+            out("record", event, m, p, s)
+        for k in sorted(created):
+            out("created", k)
+
+    elif mode == "strip":
+        for event, gi, hi, m, p, h in reversed(entries(data)):
+            if p in kit_paths:
+                drop(data, event, gi, hi)
+                out("remove", event, p)
+        env = data.get("env")
+        if isinstance(env, dict):
+            for c in sorted(created):
+                if c.startswith("env:") and c[4:] in env:
+                    del env[c[4:]]
+                    out("env", c[4:])
+        prune(data)
+        # What still names a removed hook script, and so fails on every event.
+        for event, gi, hi, m, p, h in entries(data, False):
+            if p in kit_paths:
+                out("left", event, p)
+
+    elif mode == "rewrite":
+        def sub(cmd):
+            for old, new in pairs:
+                cmd = re.sub(r"(?<![A-Za-z0-9_.-])" + re.escape(old) + r"(?![A-Za-z0-9_./-])",
+                             lambda _m, n=new: n, cmd)
+            return cmd
+        olds = set(o for o, _ in pairs)
+        for event, gi, hi, m, p, h in entries(data, False):
+            if p in kit_paths and p in olds:
+                new = sub(h["command"])
+                if new != h["command"]:
+                    h["command"] = new
+                    out("rewrite", event, p)
+        sl = data.get("statusLine")
+        if isinstance(sl, dict) and isinstance(sl.get("command"), str):
+            new = sub(sl["command"])
+            if new != sl["command"]:
+                sl["command"] = new
+                out("rewrite", "statusLine", new)
+except (AttributeError, TypeError, KeyError, IndexError):
+    out("manual", "an unexpected shape in the settings file")
+    sys.exit(0)
+
+if mode != "plan" and json.dumps(data, sort_keys=False) != before:
+    try:
+        real = os.path.realpath(path)
+        tmp = real + ".ack-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(dump(data, ind, text))
+        try:
+            os.chmod(tmp, os.stat(real).st_mode & 0o7777)
+        except OSError:
+            pass
+        os.replace(tmp, real)
+    except OSError:
+        out("manual", "could not write the file")
+if mode == "merge":
+    orig = json.loads(text)
+    if dump(orig, ind, text) != text:
+        out("note", "reformatted")
+PY
+}
+# <<< ack-settings
+
 # The kit tree this script runs from (the npm package or a clone) holds the
 # scaffold and templates the installer copied, so a project file can be checked
 # against the kit's copy. Empty when that tree isn't here (piped from curl).
@@ -743,13 +1017,35 @@ fi
 echo ""
 
 # A settings.json that stays may still register kit hooks that are about to go.
-for _f in ${KEPT_EDITED[@]+"${KEPT_EDITED[@]}"}; do
-  if [ "$_f" = ".claude/settings.json" ]; then
-    warn ".claude/settings.json stays (edited since the install) but may still register kit hooks that are removed — each fails on every matching event; delete those entries"
+# With #hook records (ADR-032) those entries are taken out after a backup; without
+# them (an install from before the merge) the project has to delete them by hand.
+SETTINGS_HOOK_RECORDS=0
+SETTINGS_HOOK_PATHS=""
+SETTINGS_REC_COPY=""
+if [ -f "$DEST/.kit-baseline" ]; then
+  SETTINGS_REC_COPY=$(mktemp "${TMPDIR:-/tmp}/ack-rec.XXXXXX") && cp "$DEST/.kit-baseline" "$SETTINGS_REC_COPY"
+  # Read now: the record itself is removed before the settings step runs.
+  SETTINGS_HOOK_PATHS=$(LC_ALL=C awk -F'\t' '{ gsub(/\r/, "") } $1 == "#hook" { print $4 }' "$DEST/.kit-baseline" | LC_ALL=C sort -u)
+  [ -z "$SETTINGS_HOOK_PATHS" ] || SETTINGS_HOOK_RECORDS=$(printf '%s\n' "$SETTINGS_HOOK_PATHS" | wc -l | tr -d ' ')
+fi
+if [ -f "$DEST/.claude/settings.json" ]; then
+  _stays=false
+  for _f in ${KEPT_EDITED[@]+"${KEPT_EDITED[@]}"} ${PROJECT_OWN[@]+"${PROJECT_OWN[@]}"}; do
+    [ "$_f" = ".claude/settings.json" ] && _stays=true
+  done
+  if [ "$_stays" = true ] && [ "$SETTINGS_HOOK_RECORDS" -gt 0 ]; then
+    info ".claude/settings.json stays: the entries for the kit's hooks that are removed are taken out of it (a backup is saved first)"
     echo ""
-    break
+  elif [ "$_stays" = true ]; then
+    for _f in ${KEPT_EDITED[@]+"${KEPT_EDITED[@]}"}; do
+      if [ "$_f" = ".claude/settings.json" ]; then
+        warn ".claude/settings.json stays (edited since the install) but may still register kit hooks that are removed — each fails on every matching event; delete those entries"
+        echo ""
+        break
+      fi
+    done
   fi
-done
+fi
 
 # --- Dry run exits here ---
 
@@ -887,6 +1183,41 @@ if [ ${#LEFTOVERS_TO_REMOVE[@]} -gt 0 ]; then
     REMOVED=$((REMOVED + 1))
   done
 fi
+
+# A settings.json that stays loses exactly the entries of the hooks removed above.
+if [ -f "$DEST/.claude/settings.json" ] && [ "$SETTINGS_HOOK_RECORDS" -gt 0 ]; then
+  _gone=$(mktemp "${TMPDIR:-/tmp}/ack-hooks.XXXXXX")
+  while IFS= read -r _p; do
+    [ -n "$_p" ] && [ ! -e "$DEST/$_p" ] && [ ! -L "$DEST/$_p" ] && echo "$_p" >> "$_gone"
+  done <<<"$SETTINGS_HOOK_PATHS"
+  if [ -s "$_gone" ]; then
+    _kit_settings=""
+    [ -n "$KIT_SRC" ] && [ -f "$KIT_SRC/.claude/settings.strict.json" ] && _kit_settings="$KIT_SRC/.claude/settings.strict.json"
+    _sb="${_stamp:-.kit-backup/$(date -u +%Y%m%dT%H%M%SZ)}"
+    mkdir -p "$DEST/$_sb/.claude"
+    [ -f "$DEST/.kit-backup/.gitignore" ] || printf '*\n!.gitignore\n' > "$DEST/.kit-backup/.gitignore"
+    cp -p "$DEST/.claude/settings.json" "$DEST/$_sb/.claude/settings.json"
+    _st=0; _strip_out=$(ack_settings strip "$DEST/.claude/settings.json" "$_kit_settings" "$_gone" "${SETTINGS_REC_COPY:-/dev/null}" "") || _st=$?
+    if [ "$_st" -ne 0 ] || grep -q '^manual' <<<"$_strip_out"; then
+      warn ".claude/settings.json still registers kit hooks that were removed — each fails on every matching event; delete those entries"
+    else
+      _n=$(printf '%s\n' "$_strip_out" | grep -c '^remove' || true)
+      if [ "$_n" -gt 0 ]; then
+        ok "Removed $_n kit hook entries from .claude/settings.json (your copy is in $_sb/.claude/settings.json)"
+      fi
+      _left=$(printf '%s\n' "$_strip_out" | awk -F'\t' '$1 == "left" { print "       - " $3 " (" $2 ")" }')
+      if [ -n "$_left" ]; then
+        warn ".claude/settings.json has entries of yours that still run kit hooks that were removed — each fails on every matching event; delete or change them:"
+        printf '%s\n' "$_left"
+      fi
+    fi
+    if cmp -s "$DEST/.claude/settings.json" "$DEST/$_sb/.claude/settings.json"; then
+      rm -f "$DEST/$_sb/.claude/settings.json"; rmdir "$DEST/$_sb/.claude" "$DEST/$_sb" 2>/dev/null || true
+    fi
+  fi
+  rm -f "$_gone"
+fi
+[ -z "$SETTINGS_REC_COPY" ] || rm -f "$SETTINGS_REC_COPY"
 
 # tasks/: the scaffold files go, then whatever directories that emptied.
 if [ ${#TASKS_TO_REMOVE[@]} -gt 0 ]; then

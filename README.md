@@ -300,7 +300,7 @@ The plan in `tasks/todo.md` and the decisions in `tasks/decisions.md` outlast an
 ### Adopt it in an existing project
 
 1. Run `init`. Your own `CLAUDE.md`, `.claude/settings.json`, hooks, agents and scripts stay as they are, and the installer lists what it left alone.
-2. Kept your own `settings.json`? Register the kit's hooks in it — `doctor` fails until you do.
+2. Have your own `settings.json`? `init` adds the kit's hooks to it and keeps your entries and permissions (a backup is saved first). If it can't — no `python3`, or the file has comments — `doctor` fails until you register the hooks by hand.
 3. Kept your own `CLAUDE.md`? Move your rules into `CLAUDE.project.md` to switch on the kit's (see the [FAQ](#-faq)).
 4. Fill in `CODEBASE_MAP.md`. `/constitution` can infer your coding principles from the existing code into `golden-principles.yaml`, and `/quality-audit` then checks the code against them.
 
@@ -421,7 +421,7 @@ Everything goes into your project directory, where you can read and edit it. Not
 | `agent_docs/` | Guides Claude reads when relevant: workflow, debugging, testing, hooks | Updated, except `agent_docs/project/` (yours) |
 | `.claude/hooks/` | The 28 hook scripts | Updated, except `.claude/hooks/project/` (yours) |
 | `.claude/skills/`, `.claude/agents/` | Skills and subagents | Updated |
-| `.claude/settings.json` | Which hooks run, and allow/deny lists for commands | Never touched |
+| `.claude/settings.json` | Which hooks run, and allow/deny lists for commands | Only the kit's hook entries are added, updated or removed |
 | `tasks/` | Plan, decisions, lessons and handoffs — Claude writes here as it works | Never touched |
 | `scripts/` | `doctor.sh`, `statusline.sh`, `convert.sh` and other helpers | Updated |
 | `.kit-manifest`, `.kit-baseline` | What the kit installed, so upgrades and uninstall touch only its files | Rewritten |
@@ -587,7 +587,7 @@ npx @lucasfelipe23/agent-code-kit@latest init --upgrade
 - Kit files you haven't edited are updated.
 - Kit files you've edited are kept. If the kit changed them too, its version is saved next to yours as `<file>.kit-new` for you to merge.
 - A file of your own at a path the kit also uses (your `scripts/validate.sh`, your `.claude/agents/code-reviewer.md`) stays as it is when the install record is marked complete, which every first install and every `--upgrade` does. The summary lists them as "yours". Delete yours and re-run to get the kit's version. An install from before the record replaces such a file and keeps the previous copy in `.kit-backup/`.
-- Your files — `CODEBASE_MAP.md`, `CLAUDE.project.md`, `tasks/`, `.claude/settings.json` and the `project/` folders — are never touched.
+- Your files — `CODEBASE_MAP.md`, `CLAUDE.project.md`, `tasks/` and the `project/` folders — are never touched. In `.claude/settings.json` only the kit's own hook entries change; your entries and permissions stay.
 
 Add `--diff` to preview an upgrade: it runs on a scratch copy and reports what would change, without writing to your project. To install a specific version, put it in the package name: `npx @lucasfelipe23/agent-code-kit@1.22.2 init`.
 

@@ -305,7 +305,8 @@ After Compaction (mid-session context loss)
 Upgrade (install.sh --upgrade)
   → .kit-manifest read to identify kit-managed files
   → Kit files updated against the per-file install baseline; ones you edited are kept and reported (ADR-017)
-  → Project files (tasks/, CODEBASE_MAP.md, overlays) and .claude/settings.json left untouched — doctor migrates former-prefix settings keys (ADR-029)
+  → Project files (tasks/, CODEBASE_MAP.md, overlays) left untouched
+  → .claude/settings.json: the kit's hook entries are merged by owner (yours and permissions stay; backup first, ADR-032); doctor migrates former-prefix settings keys (ADR-029)
 ```
 
 ---

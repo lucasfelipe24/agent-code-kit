@@ -111,7 +111,7 @@ error() { echo -e "${RED}[error]${NC} $*"; exit 1; }
 
 # --- Upgrade preview (--diff) ---
 
-# kit_attention_report <dest> <kit_dir> — what an upgrade can't fix on its own,
+# kit_attention_report <dest> <kit_dir> [settings_dir] — what an upgrade can't fix on its own,
 # one tab-separated line per finding:
 #   stale<TAB><path>         .kit-baseline says the kit wrote it; the kit no
 #                            longer ships it
@@ -124,12 +124,15 @@ error() { echo -e "${RED}[error]${NC} $*"; exit 1; }
 #   dangling<TAB><path>      .claude/settings.json runs a hook script that exists
 #                            neither in the project nor in the kit
 #   optin<TAB><count>        strict-profile hooks available but not registered
+# The settings findings (unregistered, dangling, optin, legacy) read the
+# settings files under [settings_dir] (default <dest>); --diff points it at the
+# upgraded scratch copy, so a registration the upgrade will make isn't reported.
 kit_attention_report() {
   command -v python3 >/dev/null 2>&1 || return 0
-  python3 - "$1" "$2" <<'PY' 2>/dev/null || true
+  python3 - "$1" "$2" "${3:-$1}" <<'PY' 2>/dev/null || true
 import json, os, re, sys
 
-dest, kit = sys.argv[1], sys.argv[2]
+dest, kit, sdir = sys.argv[1], sys.argv[2], sys.argv[3]
 HOOK_RE = re.compile(r"\.claude/hooks/[A-Za-z0-9_./-]+?\.sh")
 
 def read_paths(name, fields):
@@ -176,7 +179,7 @@ def registered(path):
                 found.update(HOOK_RE.findall(str(h.get("command", ""))))
     return found
 
-local = registered(os.path.join(dest, ".claude", "settings.json"))
+local = registered(os.path.join(sdir, ".claude", "settings.json"))
 standard = registered(os.path.join(kit, ".claude", "settings.json")) or set()
 strict = registered(os.path.join(kit, ".claude", "settings.strict.json")) or set()
 if local is not None:
@@ -196,7 +199,7 @@ legacy = "".join(map(chr, (67, 67, 75, 95)))
 count = 0
 for name in ("settings.json", "settings.local.json"):
     try:
-        with open(os.path.join(dest, ".claude", name)) as fh:
+        with open(os.path.join(sdir, ".claude", name)) as fh:
             env = json.load(fh).get("env") or {}
     except (OSError, ValueError, AttributeError):
         continue
@@ -207,14 +210,14 @@ if count:
 PY
 }
 
-# print_attention <dest> <kit_dir> — kit_attention_report for a person. Sets
+# print_attention <dest> <kit_dir> [settings_dir] — kit_attention_report for a person. Sets
 # ATTENTION_COUNT to the number of findings that need action ("listed" paths
 # may be the project's own, so they are shown but not counted).
 ATTENTION_COUNT=0
 print_attention() {
   local report kind value stale="" listed="" unreg="" dangling="" optin="" legacy=""
   ATTENTION_COUNT=0
-  report=$(kit_attention_report "$1" "$2")
+  report=$(kit_attention_report "$1" "$2" "${3:-$1}")
   [ -n "$report" ] || return 0
   while IFS=$'\t' read -r kind value; do
     case "$kind" in
@@ -256,6 +259,280 @@ print_attention() {
   fi
   return 0
 }
+
+# >>> ack-settings
+# Merge, strip and rewrite the kit's hook entries in a project's settings.json
+# by owner (ADR-032). Bash supplies the facts (which hook paths are the kit's),
+# python3 applies the policy. This block is copied verbatim into uninstall.sh;
+# scripts/test-install.sh fails when the two copies differ. Edit it in install.sh,
+# then re-copy it.
+#
+#   ack_settings <mode> <file> <kit_settings> <kit_hooks> <records> [old=new...]
+#
+#   mode          plan | merge | strip | rewrite (plan writes nothing)
+#   file          the project's settings.json (settings.local.json beside it is
+#                 only read, for "already registered")
+#   kit_settings  the kit's settings.json for the profile ("" for strip/rewrite)
+#   kit_hooks     a file listing the hook paths the ownership classifier calls
+#                 the kit's, one per line (strip: the hooks being removed;
+#                 rewrite: the paths being replaced)
+#   records       .kit-baseline — its `#hook` lines are the per-entry records
+#                 (event, matcher or -, path, sha256 of the entry as the kit wrote it)
+#
+# One TSV line per finding: add | update | remove | current | edited | present
+# | yours | rewrite | env | note | manual, then `record` lines for the entries
+# that are the kit's after the run and `created` lines for the keys the kit made
+# (to write back as #hook and #hookkey header lines). Exit 0
+# whatever happens to the file; 3 when python3 is missing. A file that isn't
+# strict JSON is never written: the line is `manual`.
+ack_settings() {
+  python3 -c 'import hashlib, json, re' >/dev/null 2>&1 || return 3
+  python3 - "$@" <<'PY'
+import hashlib, json, os, re, sys
+
+mode, path, kit_path, hooks_path, rec_path = sys.argv[1:6]
+pairs = [a.split("=", 1) for a in sys.argv[6:] if "=" in a]
+# A hook path counts only as the project's own: bare, ./-prefixed or under
+# $CLAUDE_PROJECT_DIR — never ~/.claude/... or /opt/x/.claude/... (LOOSE). An
+# entry is the kit's only when the whole command is that one path (STRICT), so
+# `hook.sh --flag` or a chain of two scripts is the project's.
+PROJ = r"(?:(?<![\w./~-])|(?<=\./)|(?<=\$CLAUDE_PROJECT_DIR/)|(?<=\$CLAUDE_PROJECT_DIR\"/)|(?<=\$\{CLAUDE_PROJECT_DIR\}/)|(?<=\$\{CLAUDE_PROJECT_DIR\}\"/))"
+HOOK = r"\.claude/hooks/[A-Za-z0-9_./-]+?\.sh"
+LOOSE_RE = re.compile(PROJ + "(" + HOOK + ")(?![A-Za-z0-9_./-])")
+STRICT_RE = re.compile(r'^(?:\./)?(?:"?\$\{?CLAUDE_PROJECT_DIR\}?"?/)?(' + HOOK + r')"?$')
+
+def out(*f):
+    print("\t".join(str(x) for x in f))
+
+def load(p):
+    with open(p, encoding="utf-8") as fh:
+        text = fh.read()
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        raise ValueError("not an object")
+    return text, data
+
+def lines(p):
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return [l.rstrip("\r\n") for l in fh]
+    except OSError:
+        return []
+
+def sha(matcher, hook):
+    blob = json.dumps({"matcher": matcher, "hook": hook}, sort_keys=True,
+                      separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+def entries(data, strict=True):
+    # (event, group index, handler index, matcher, hook path, handler)
+    found = []
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        return found
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            continue
+        for gi, g in enumerate(groups):
+            if not isinstance(g, dict) or not isinstance(g.get("hooks"), list):
+                continue
+            for hi, h in enumerate(g["hooks"]):
+                if not isinstance(h, dict):
+                    continue
+                cmd = str(h.get("command", "")).strip()
+                m = STRICT_RE.match(cmd) if strict else LOOSE_RE.search(cmd)
+                if m:
+                    found.append((event, gi, hi, g.get("matcher"), m.group(1), h))
+    return found
+
+def drop(data, event, gi, hi):
+    # Remove one handler, and the group it leaves empty.
+    groups = data["hooks"][event]
+    groups[gi]["hooks"].pop(hi)
+    if not groups[gi]["hooks"]:
+        groups.pop(gi)
+
+def prune(data):
+    # Only keys the kit created are taken out again; an empty "hooks" or event
+    # the project had stays.
+    hooks = data.get("hooks")
+    if isinstance(hooks, dict):
+        for event in list(hooks):
+            if hooks[event] == [] and "hooks/" + event in created:
+                del hooks[event]
+        if not hooks and "hooks" in created:
+            del data["hooks"]
+    if data.get("env") == {} and "env" in created:
+        del data["env"]
+
+def indent_of(text):
+    for line in text.split("\n"):
+        m = re.match(r"^([ \t]+)\S", line)
+        if m:
+            return "\t" if m.group(1)[0] == "\t" else len(m.group(1))
+    return 2
+
+def dump(data, ind, text):
+    return json.dumps(data, indent=ind, ensure_ascii=False) + ("\n" if text.endswith("\n") else "")
+
+try:
+    text, data = load(path)
+except (OSError, ValueError) as e:
+    out("manual", "not strict JSON, or unreadable" if isinstance(e, ValueError) else "unreadable")
+    sys.exit(0)
+
+before = json.dumps(data, sort_keys=False)
+try:
+    ind = indent_of(text)
+    kit_paths = set(l for l in lines(hooks_path) if l)
+    records = {}
+    created = set()
+    for l in lines(rec_path):
+        f = l.split("\t")
+        if len(f) == 5 and f[0] == "#hook":
+            records[(f[1], f[2], f[3])] = f[4]
+        elif len(f) == 2 and f[0] == "#hookkey":
+            created.add(f[1])
+    mkey = lambda m: "-" if m is None else m
+
+    if mode in ("plan", "merge"):
+        try:
+            _, kit = load(kit_path)
+        except (OSError, ValueError):
+            out("manual", "the kit's settings could not be read")
+            sys.exit(0)
+        local = {}
+        try:
+            _, local = load(os.path.join(os.path.dirname(path), "settings.local.json"))
+        except (OSError, ValueError):
+            pass
+        mine = entries(data)
+        registered = set(e[4] for e in entries(data, False)) | set(e[4] for e in entries(local, False))
+        if "hooks" in data and not isinstance(data["hooks"], dict):
+            out("manual", "\"hooks\" is not an object")
+            sys.exit(0)
+        kit_keys = set()
+        final = {}
+        for event, gi, hi, m, p, h in entries(kit):
+            if p not in kit_paths:
+                continue
+            key = (event, mkey(m), p)
+            kit_keys.add(key)
+            want = sha(m, h)
+            have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
+            if have:
+                e = have[0]
+                got = sha(e[3], e[5])
+                rec = records.get(key)
+                if got == want:
+                    out("current", event, p); final[key] = want
+                elif rec and got == rec:
+                    data["hooks"][event][e[1]]["hooks"][e[2]] = json.loads(json.dumps(h))
+                    out("update", event, p); final[key] = want
+                else:
+                    out("edited", event, p)
+                    if rec:
+                        final[key] = rec
+            elif p in registered:
+                out("present", event, p)
+            else:
+                group = {"hooks": [json.loads(json.dumps(h))]}
+                if m is not None:
+                    group = {"matcher": m, **group}
+                if "hooks" not in data:
+                    created.add("hooks")
+                if event not in data.get("hooks", {}):
+                    created.add("hooks/" + event)
+                data.setdefault("hooks", {}).setdefault(event, []).append(group)
+                mine = entries(data)
+                out("add", event, p); final[key] = want
+        for key, rec in records.items():
+            if key in kit_keys:
+                continue
+            event, m, p = key
+            have = [e for e in mine if (e[0], mkey(e[3]), e[4]) == key]
+            if have and sha(have[0][3], have[0][5]) == rec:
+                e = have[0]
+                drop(data, event, e[1], e[2])
+                mine = entries(data)
+                out("remove", event, p)
+        prune(data)
+        kit_env = kit.get("env")
+        if isinstance(kit_env, dict):
+            env = data.get("env") if isinstance(data.get("env"), dict) else {}
+            lenv = local.get("env") if isinstance(local.get("env"), dict) else {}
+            for k, v in kit_env.items():
+                if k.startswith("ACK_") and k not in env and k not in lenv:
+                    if "env" not in data:
+                        created.add("env")
+                    created.add("env:" + k)
+                    data.setdefault("env", {})[k] = v
+                    out("env", k)
+        for (event, m, p), s in sorted(final.items()):
+            out("record", event, m, p, s)
+        for k in sorted(created):
+            out("created", k)
+
+    elif mode == "strip":
+        for event, gi, hi, m, p, h in reversed(entries(data)):
+            if p in kit_paths:
+                drop(data, event, gi, hi)
+                out("remove", event, p)
+        env = data.get("env")
+        if isinstance(env, dict):
+            for c in sorted(created):
+                if c.startswith("env:") and c[4:] in env:
+                    del env[c[4:]]
+                    out("env", c[4:])
+        prune(data)
+        # What still names a removed hook script, and so fails on every event.
+        for event, gi, hi, m, p, h in entries(data, False):
+            if p in kit_paths:
+                out("left", event, p)
+
+    elif mode == "rewrite":
+        def sub(cmd):
+            for old, new in pairs:
+                cmd = re.sub(r"(?<![A-Za-z0-9_.-])" + re.escape(old) + r"(?![A-Za-z0-9_./-])",
+                             lambda _m, n=new: n, cmd)
+            return cmd
+        olds = set(o for o, _ in pairs)
+        for event, gi, hi, m, p, h in entries(data, False):
+            if p in kit_paths and p in olds:
+                new = sub(h["command"])
+                if new != h["command"]:
+                    h["command"] = new
+                    out("rewrite", event, p)
+        sl = data.get("statusLine")
+        if isinstance(sl, dict) and isinstance(sl.get("command"), str):
+            new = sub(sl["command"])
+            if new != sl["command"]:
+                sl["command"] = new
+                out("rewrite", "statusLine", new)
+except (AttributeError, TypeError, KeyError, IndexError):
+    out("manual", "an unexpected shape in the settings file")
+    sys.exit(0)
+
+if mode != "plan" and json.dumps(data, sort_keys=False) != before:
+    try:
+        real = os.path.realpath(path)
+        tmp = real + ".ack-tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(dump(data, ind, text))
+        try:
+            os.chmod(tmp, os.stat(real).st_mode & 0o7777)
+        except OSError:
+            pass
+        os.replace(tmp, real)
+    except OSError:
+        out("manual", "could not write the file")
+if mode == "merge":
+    orig = json.loads(text)
+    if dump(orig, ind, text) != text:
+        out("note", "reformatted")
+PY
+}
+# <<< ack-settings
 
 # _plan_compare <dest> <plan_dir> — how the upgraded scratch copy differs from
 # the project: add / update / conflict lines, then backups<TAB><count>. A
@@ -344,7 +621,7 @@ preview_list() {
 # project — so the preview is exactly what the upgrade would do: same code, same
 # decisions. Then what an upgrade can't fix: stale kit files, hook registrations.
 run_diff() {
-  local p f rows log added updated conflicts kept kind new n_add n_upd n_conf n_kept n_back installed latest
+  local p f rows log added updated conflicts kept kind new n_add n_upd n_conf n_kept n_back installed latest settings_detail
   echo ""
   echo "  Agent Code Kit — Upgrade preview (read-only)"
   echo "  ============================================="
@@ -406,7 +683,7 @@ run_diff() {
   done <<<"$(find_dotnet_markers "$DEST")"
   if [ -d "$DEST/.claude" ]; then
     mkdir -p "$PLAN_DIR/.claude"
-    for p in hooks agents skills extensions settings.json mcp-allowlist.txt.example commands.json.example; do
+    for p in hooks agents skills extensions settings.json settings.local.json mcp-allowlist.txt.example commands.json.example; do
       if [ -e "$DEST/.claude/$p" ]; then
         plan_copy "$DEST/.claude/$p" "$PLAN_DIR/.claude/"
       fi
@@ -482,7 +759,13 @@ run_diff() {
     echo ""
     info "--upgrade moves reports/session-audit.log into .hook-state/session-audit.log (not counted as an update); reports/ is left alone unless the kit's own .gitignore was its only file"
   fi
-  print_attention "$DEST" "$CLONE_DIR"
+  settings_detail=$(awk '/Merged the kit.s hooks into/ { f = 1; next } f && /^       [-+~=] / { print; next } { f = 0 }' <<<"$log")
+  if [ -n "$settings_detail" ]; then
+    echo ""
+    echo "  .claude/settings.json — the kit's hook entries (yours stay as they are):"
+    printf '%s\n' "$settings_detail"
+  fi
+  print_attention "$DEST" "$CLONE_DIR" "$PLAN_DIR"
 
   echo ""
   echo "  ============================================="
@@ -493,7 +776,7 @@ run_diff() {
     if [ $((n_add + n_upd + n_conf)) -gt 0 ]; then
       echo "  Run install.sh --upgrade to apply the changes above."
     fi
-    echo "  --upgrade never changes .claude/settings.json or your project files (tasks/, CODEBASE_MAP.md, overlays)."
+    echo "  --upgrade changes .claude/settings.json only to register the kit's hooks (a backup is saved first); it never touches your project files (tasks/, CODEBASE_MAP.md, overlays)."
   fi
   echo ""
 }
@@ -555,6 +838,8 @@ copy_if_new() {
 # The manifest and the record then name only what the kit owns (N1).
 INIT_INSTALLED=0
 SETTINGS_KEPT=false
+HOOK_RECORDS=""
+HOOK_RECORDS_SET=false
 INIT_KEPT=()
 INSTALL_OURS=false
 
@@ -983,6 +1268,13 @@ baseline_write() {
     fi
     if [ -n "$template" ]; then
       printf '#template\t%s\n' "$template"
+    fi
+    # #hook lines (ADR-032): which settings.json entries are the kit's, as it wrote
+    # them. This run's when it merged, else the previous record's.
+    if [ "$HOOK_RECORDS_SET" = true ]; then
+      [ -z "$HOOK_RECORDS" ] || printf '%s\n' "$HOOK_RECORDS"
+    elif [ -f "$old" ]; then
+      awk -F'\t' '{ gsub(/\r/, "") } $1 == "#hook" || $1 == "#hookkey"' "$old"
     fi
     {
       if [ "${#BASELINE_ENTRIES[@]}" -gt 0 ]; then
@@ -1734,6 +2026,106 @@ if [ "$PROFILE" != "minimal" ]; then
 
 fi
 
+# --- settings.json: the kit's hooks, merged by owner (ADR-032) ---
+
+# kit_settings_file — the kit's settings.json for the profile being installed.
+kit_settings_file() {
+  if [ "$PROFILE" = strict ]; then echo "$CLONE_DIR/.claude/settings.strict.json"; else echo "$CLONE_DIR/.claude/settings.json"; fi
+}
+
+# settings_kit_hooks <out> — the profile's hook paths that are the kit's here:
+# installed, and not kept as the project's own file of that name.
+settings_kit_hooks() {
+  local h y mine
+  : > "$1"
+  while IFS= read -r h; do
+    [ -f "$DEST/$h" ] || continue
+    mine=true
+    for y in ${INIT_KEPT[@]+"${INIT_KEPT[@]}"} ${YOURS_FILES[@]+"${YOURS_FILES[@]}"}; do
+      [ "$y" = "$h" ] && mine=false
+    done
+    if [ "$mine" = true ]; then echo "$h" >> "$1"; fi
+  done < <(grep -o '\.claude/hooks/[A-Za-z0-9_./-]*\.sh' "$(kit_settings_file)" 2>/dev/null | LC_ALL=C sort -u)
+  return 0
+}
+
+# settings_take <ack_settings output> — count the findings and keep the records.
+# Sets SET_REGISTERED, SET_CHANGED and SET_KEPT.
+settings_take() {
+  local kind a b c d
+  SET_REGISTERED=0; SET_CHANGED=0; SET_KEPT=0; SET_LINES=""; SET_NOTE=""; HOOK_RECORDS=""; HOOK_RECORDS_SET=true
+  while IFS=$'\t' read -r kind a b c d; do
+    case "$kind" in
+      add)    SET_REGISTERED=$((SET_REGISTERED + 1)); SET_CHANGED=$((SET_CHANGED + 1)); SET_LINES="${SET_LINES}       + $b ($a)"$'\n' ;;
+      update) SET_REGISTERED=$((SET_REGISTERED + 1)); SET_CHANGED=$((SET_CHANGED + 1)); SET_LINES="${SET_LINES}       ~ $b ($a) — the kit's newer entry"$'\n' ;;
+      current)    SET_REGISTERED=$((SET_REGISTERED + 1)) ;;
+      remove) SET_CHANGED=$((SET_CHANGED + 1)); SET_LINES="${SET_LINES}       - $b ($a) — the kit no longer registers it"$'\n' ;;
+      env)    SET_CHANGED=$((SET_CHANGED + 1)); SET_LINES="${SET_LINES}       + env $a"$'\n' ;;
+      edited) SET_KEPT=$((SET_KEPT + 1)); SET_LINES="${SET_LINES}       = $b ($a) — your edited entry, kept"$'\n' ;;
+      present) SET_KEPT=$((SET_KEPT + 1)) ;;
+      note)   SET_NOTE=" — the file was reformatted as indented JSON, the original is in the backup" ;;
+      record)     HOOK_RECORDS="${HOOK_RECORDS:+$HOOK_RECORDS$'\n'}#hook"$'\t'"$a"$'\t'"$b"$'\t'"$c"$'\t'"$d" ;;
+      created)    HOOK_RECORDS="${HOOK_RECORDS:+$HOOK_RECORDS$'\n'}#hookkey"$'\t'"$a" ;;
+    esac
+  done <<<"$1"
+}
+
+# record_kit_settings — the file is the kit's own: record its entries (no write).
+record_kit_settings() {
+  local hooks out
+  hooks=$(mktemp "${TMPDIR:-/tmp}/ack-hooks.XXXXXX")
+  settings_kit_hooks "$hooks"
+  out=$(ack_settings plan "$DEST/.claude/settings.json" "$(kit_settings_file)" "$hooks" "$DEST/$BASELINE_FILE") || out="manual"
+  rm -f "$hooks"
+  # A failed read keeps the records of the last run (HOOK_RECORDS_SET stays false).
+  if ! grep -q '^manual' <<<"$out"; then settings_take "$out"; fi
+  return 0
+}
+
+# merge_kit_settings — register the profile's kit hooks in the project's own
+# settings.json, keeping every entry and permission it has. A file the engine
+# can't edit (no python3, or not strict JSON) is left alone: SETTINGS_KEPT tells
+# the closing warning to name what to add by hand.
+merge_kit_settings() {
+  local rel=.claude/settings.json hooks plan out rc=0 backed=""
+  hooks=$(mktemp "${TMPDIR:-/tmp}/ack-hooks.XXXXXX")
+  settings_kit_hooks "$hooks"
+  plan=$(ack_settings plan "$DEST/$rel" "$(kit_settings_file)" "$hooks" "$DEST/$BASELINE_FILE") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$hooks"
+    warn "Kept $rel: merging the kit's hooks needs python3, and none is usable here."
+    SETTINGS_KEPT=true
+    return 0
+  fi
+  if grep -q '^manual' <<<"$plan"; then
+    rm -f "$hooks"
+    warn "Kept $rel: it is not strict JSON (comments?), so the kit's hooks were not merged into it."
+    SETTINGS_KEPT=true
+    return 0
+  fi
+  out="$plan"
+  if grep -Eq '^(add|update|remove|env)' <<<"$plan"; then
+    backup_file "$rel"
+    backed=" (your copy is in $BACKUP_DIR/$rel)"
+    out=$(ack_settings merge "$DEST/$rel" "$(kit_settings_file)" "$hooks" "$DEST/$BASELINE_FILE") || out="manual"
+  fi
+  rm -f "$hooks"
+  if grep -q '^manual' <<<"$out"; then
+    warn "Kept $rel: the merge could not be applied ($(printf '%s\n' "$out" | awk -F'\t' '$1 == "manual" { print $2; exit }')). Your copy is in ${BACKUP_DIR:-.kit-backup}/$rel."
+    SETTINGS_KEPT=true
+    return 0
+  fi
+  settings_take "$out"
+  if [ "$SET_CHANGED" -gt 0 ]; then
+    ok "Merged the kit's hooks into $rel — $SET_REGISTERED registered, $SET_KEPT of yours kept$backed$SET_NOTE"
+    printf '%s' "$SET_LINES"
+    if [ "$UPGRADE" = true ]; then UP_UPDATED=$((UP_UPDATED + 1)); UP_BACKED_UP=$((UP_BACKED_UP + 1)); fi
+  elif [ "$SET_REGISTERED" -gt 0 ]; then
+    ok "$rel already registers the kit's hooks ($SET_REGISTERED)"
+  fi
+  return 0
+}
+
 # Copy settings.json (hooks + permissions config)
 if [ ! -f "$DEST/.claude/settings.json" ]; then
   manifest_add ".claude/settings.json"
@@ -1749,17 +2141,27 @@ if [ ! -f "$DEST/.claude/settings.json" ]; then
     cp "$CLONE_DIR/.claude/settings.strict.json" "$DEST/.claude/settings.json"
     baseline_record "$CLONE_DIR/.claude/settings.strict.json" ".claude/settings.json"
     ok "Created .claude/settings.json (strict — all hooks enabled)"
+    record_kit_settings
   else
     cp "$CLONE_DIR/.claude/settings.json" "$DEST/.claude/settings.json"
     baseline_record "$CLONE_DIR/.claude/settings.json" ".claude/settings.json"
     ok "Created .claude/settings.json (hooks + permissions config)"
+    record_kit_settings
   fi
   note_added "$DEST/.claude/settings.json"
 elif [ "$UPGRADE" = true ]; then
-  warn "Kept .claude/settings.json (not auto-merged — review new hooks manually)"
+  # An untouched kit file is replaced whole; anything else gets the kit's hooks merged in.
+  if [ "$(owner_of .claude/settings.json)" = kit ]; then
+    upgrade_file "$(kit_settings_file)" ".claude/settings.json"
+    record_kit_settings
+  else
+    merge_kit_settings
+  fi
 else
-  warn "Skipped .claude/settings.json (already exists)"
-  SETTINGS_KEPT=true
+  case "$(owner_of .claude/settings.json)" in
+    kit|kit-edited) warn "Skipped .claude/settings.json (already the kit's)" ;;
+    *) merge_kit_settings ;;
+  esac
 fi
 
 # Copy the MCP allowlist template (mcp-gate.sh is inert until the real file exists)
@@ -1961,7 +2363,7 @@ if [ "$UPGRADE" != true ] && [ "$SETTINGS_KEPT" = true ]; then
     warn "Your .claude/settings.json was kept, and it registers none of these kit hooks ($(printf '%s\n' "$UNREG" | wc -l | tr -d ' ')):"
     printf '%s\n' "$UNREG" | sed 's/^/       - /'
     echo "       The kit's safety hooks and gates won't run until you add them from the kit's"
-    echo "       .claude/settings.json (a later release merges this automatically)."
+    echo "       .claude/settings.json (merging them automatically needs a usable python3 and a settings.json without comments)."
     echo "       Then run ./scripts/doctor.sh to check the wiring."
   fi
 fi
@@ -1985,7 +2387,7 @@ if [ "$UPGRADE" = true ]; then
     echo "  - Resolve the conflicts above (merge each <file>.kit-new, then delete it)"
   fi
   if [ "$ATTENTION_COUNT" -gt 0 ]; then
-    echo "  - Handle the stale files / hook registrations listed above (--upgrade never edits .claude/settings.json)"
+    echo "  - Handle the stale files / hook registrations listed above"
   fi
   echo "  - Start a Claude Code session"
 elif [ "$PROFILE" = "minimal" ]; then

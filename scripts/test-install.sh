@@ -449,8 +449,10 @@ else
   fail "--diff failed"; tail -8 "$TMP/.diff.log"
 fi
 PREVIEW=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$TMP/.diff.log")
-[[ "$PREVIEW" == *"Will be updated (2)"* && "$PREVIEW" == *"~ $H1"* && "$PREVIEW" == *"~ $EX"* ]] \
-  && pass "--diff: the kit-changed hook and example will be updated" || fail "--diff did not plan exactly the updates of $H1 and $EX"
+[[ "$PREVIEW" == *"Will be updated (3)"* && "$PREVIEW" == *"~ $H1"* && "$PREVIEW" == *"~ $EX"* && "$PREVIEW" == *"~ .claude/settings.json"* ]] \
+  && pass "--diff: the kit-changed hook, the example and settings.json will be updated" || fail "--diff did not plan exactly the updates of $H1, $EX and settings.json"
+[[ "$PREVIEW" == *"the kit's hook entries"*"+ .claude/hooks/secret-scan.sh (PostToolUse)"* ]] \
+  && pass "--diff names the hook entry it will register" || fail "--diff does not name the entry it will add"
 [[ "$PREVIEW" == *"Kept (2)"*"$H2"* ]] && pass "--diff: locally edited hooks are kept" || fail "--diff did not list the kept hooks"
 for needle in "retired-hook.sh" ".claude/hooks/secret-scan.sh" ".claude/hooks/ghost.sh" "former configuration prefix"; do
   [[ "$PREVIEW" == *"$needle"* ]] && pass "--diff reports $needle" || fail "--diff does not mention $needle"
@@ -464,14 +466,16 @@ fi
 ( cd "$TMP" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" --upgrade >"$TMP/.upgrade4.log" 2>&1 ) || fail "upgrade after the preview failed"
 cmp -s "$KIT_ROOT/$H1" "$TMP/$H1" && cmp -s "$KIT_ROOT/$EX" "$TMP/$EX" \
   && pass "the previewed updates were applied" || fail "a previewed update was not applied"
-[[ "$(upgrade_summary "$TMP/.upgrade4.log")" == *" 2 updated · 0 added · "* ]] \
-  && pass "--upgrade counts exactly the 2 updates --diff previewed" || fail "upgrade summary differs from the preview: $(upgrade_summary "$TMP/.upgrade4.log")"
+[[ "$(upgrade_summary "$TMP/.upgrade4.log")" == *" 3 updated · 0 added · "* ]] \
+  && pass "--upgrade counts exactly the 3 updates --diff previewed" || fail "upgrade summary differs from the preview: $(upgrade_summary "$TMP/.upgrade4.log")"
 UPGRADE4=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$TMP/.upgrade4.log")
 for needle in "retired-hook.sh" ".claude/hooks/secret-scan.sh" ".claude/hooks/ghost.sh" "former configuration prefix"; do
   [[ "$UPGRADE4" == *"$needle"* ]] && pass "--upgrade reports $needle" || fail "--upgrade does not report $needle"
 done
-[ "$(hash_of "$TMP/.claude/settings.json")" = "$SETTINGS_BEFORE" ] \
-  && pass "--upgrade left .claude/settings.json untouched" || fail "--upgrade modified .claude/settings.json"
+[ "$(hash_of "$TMP/.claude/settings.json")" != "$SETTINGS_BEFORE" ] && grep -q 'secret-scan.sh' "$TMP/.claude/settings.json" \
+  && pass "--upgrade registered the missing hook in settings.json" || fail "--upgrade did not register secret-scan.sh"
+grep -q 'ghost.sh' "$TMP/.claude/settings.json" && pass "and left the project's own ghost.sh entry" || fail "--upgrade dropped an entry that isn't the kit's"
+ls "$TMP"/.kit-backup/*/.claude/settings.json >/dev/null 2>&1 && pass "and saved the previous settings.json first" || fail "no backup of settings.json before the merge"
 
 echo "== uninstall --force =="
 if ! ( cd "$TMP" && bash "$KIT_ROOT/uninstall.sh" --force >"$TMP/.uninstall.log" 2>&1 ); then
@@ -1223,7 +1227,7 @@ echo "== uninstall keeps what the record doesn't list (N1) =="
 strip_ansi() { sed "s/$(printf '\033')\[[0-9;]*m//g"; }
 P="$XTMP/un-brownfield"
 mkdir -p "$P/.claude/hooks" "$P/.claude/agents" "$P/.claude/skills/my-skill"
-printf '{"hooks":{}}\n' > "$P/.claude/settings.json"
+printf '{\n  "hooks": {}\n}\n' > "$P/.claude/settings.json"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$P/.claude/hooks/my-hook.sh"
 echo 'mine' > "$P/.claude/agents/my-agent.md"
 echo 'mine' > "$P/.claude/skills/my-skill/SKILL.md"
@@ -1239,7 +1243,7 @@ for f in .claude/settings.json .claude/hooks/my-hook.sh .claude/agents/my-agent.
 done
 case "$PREVIEW" in *"will also remove empty .claude/"*) fail "--dry-run announces removing a .claude/ that holds project files" ;; *) pass "--dry-run keeps .claude/" ;; esac
 ( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || { fail "uninstall errored"; tail -8 "$P/.uninstall.log"; }
-AFTER=$(snap "$P")
+AFTER=$(snap "$P" | grep -v '/\.kit-backup/')  # the backups are the safety net, kept on purpose
 [ "$BEFORE" = "$AFTER" ] && pass "every file is back as it was before the install (nothing lost, nothing left)" \
   || fail "the project differs after install + uninstall: $(diff <(echo "$BEFORE") <(echo "$AFTER") | head -6 | tr '\n' ' ')"
 UN_TEXT=$(strip_ansi < "$P/.uninstall.log")
@@ -1280,10 +1284,13 @@ echo '# mine' > "$BF/.claude/skills/debug/SKILL.md"
 echo 'echo mine' > "$BF/scripts/validate.sh"
 echo '# mine' > "$BF/agent_docs/workflow.md"
 BF_OWN=".claude/settings.json .claude/hooks/my-hook.sh .claude/hooks/lib/common.sh .claude/agents/code-reviewer.md .claude/skills/my-skill/SKILL.md .claude/skills/debug/SKILL.md scripts/validate.sh agent_docs/workflow.md"
-BF_BEFORE=$(cd "$BF" && for f in $BF_OWN; do cksum "$f"; done)
+BF_BYTES="${BF_OWN#.claude/settings.json }"  # settings.json gets the kit's hooks merged in (ADR-032)
+BF_BEFORE=$(cd "$BF" && for f in $BF_BYTES; do cksum "$f"; done)
 kit "$BF" .install.log && pass "brownfield install ran clean" || { fail "brownfield install failed"; tail -6 "$BF/.install.log"; }
-BF_AFTER=$(cd "$BF" && for f in $BF_OWN; do cksum "$f"; done)
+BF_AFTER=$(cd "$BF" && for f in $BF_BYTES; do cksum "$f"; done)
 [ "$BF_BEFORE" = "$BF_AFTER" ] && pass "the project's files are byte-identical" || fail "a project file changed"
+grep -q 'quality-gate.sh' "$BF/.claude/settings.json" && grep -q '"permissions"' "$BF/.claude/settings.json" \
+  && pass "settings.json gained the kit's hooks and kept its permissions" || fail "settings.json was not merged"
 for f in .claude/hooks/quality-gate.sh .claude/hooks/secret-scan.sh .claude/agents/planner.md .claude/skills/review-pipeline/SKILL.md \
          scripts/doctor.sh agent_docs/debugging.md; do
   [ -f "$BF/$f" ] && pass "the kit's $f was installed" || fail "the kit's $f is missing"
@@ -1434,20 +1441,156 @@ kit "$G2" .install.log --gitignore; kit "$G2" .install2.log --gitignore
 [ "$(grep -cxF ".kit-baseline" "$G2/.gitignore")" = 1 ] && pass "an old block gains .kit-baseline exactly once over two runs" || fail "an old block has $(grep -cxF ".kit-baseline" "$G2/.gitignore") .kit-baseline lines"
 grep -qxF "node_modules/" "$G2/.gitignore" && grep -qxF "CLAUDE.md" "$G2/.gitignore" && pass "the rest of the file is intact" || fail "the .gitignore lost lines"
 
-# --- S11: F2 — a kept settings.json that doesn't wire the kit's hooks ------------
-echo "== a kept settings.json: the install warns, doctor fails =="
+# --- S11 / R2 S4: a project's own settings.json gets the kit's hooks merged in ----
+echo "== a project's settings.json: init merges the kit's hooks, doctor passes =="
 F2="$XTMP/f2"; mkdir -p "$F2/.claude"
-echo '{"name":"f2","version":"1.0.0"}' > "$F2/package.json"; printf '{"permissions":{"allow":[]}}\n' > "$F2/.claude/settings.json"
+echo '{"name":"f2","version":"1.0.0"}' > "$F2/package.json"
+cat > "$F2/.claude/settings.json" <<'J'
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./ci/my-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+J
+cp "$F2/.claude/settings.json" "$F2/.orig.json"
+F2_PERMS=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permissions"]))' "$F2/.claude/settings.json")
 kit "$F2" .install.log && pass "install beside a settings.json ran clean" || fail "install failed"
 F2_LOG=$(strip_log "$F2/.install.log")
+[[ "$F2_LOG" == *"Merged the kit's hooks into .claude/settings.json"* ]] && pass "the install says it merged" || fail "no merge message"
+F2_KIT=$(python3 -c 'import json,re,sys; d=json.load(open(sys.argv[1])); print(len({re.search(r"\.claude/hooks/\S+?\.sh",h["command"]).group(0) for gs in d["hooks"].values() for g in gs for h in g["hooks"]}))' "$KIT_ROOT/.claude/settings.json")
+F2_GOT=$(python3 -c 'import json,re,sys; d=json.load(open(sys.argv[1])); print(len({re.search(r"\.claude/hooks/\S+?\.sh",h["command"]).group(0) for gs in d["hooks"].values() for g in gs for h in g["hooks"] if ".claude/hooks/" in h["command"]}))' "$F2/.claude/settings.json")
+F2_WANT=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(len(g["hooks"]) for gs in d["hooks"].values() for g in gs))' "$KIT_ROOT/.claude/settings.json")
+F2_HAVE=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(len(g["hooks"]) for gs in d["hooks"].values() for g in gs))' "$F2/.claude/settings.json")
+[ "$F2_KIT" = "$F2_GOT" ] && [ "$F2_HAVE" = "$((F2_WANT + 1))" ] && pass "every kit hook entry of the profile is registered ($F2_WANT) beside the project's one" || fail "registered $F2_GOT of $F2_KIT hook files, $F2_HAVE handlers (want $((F2_WANT + 1)))"
+grep -q './ci/my-guard.sh' "$F2/.claude/settings.json" && pass "the project's own hook stays" || fail "the project's hook was lost"
+[ "$F2_PERMS" = "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permissions"]))' "$F2/.claude/settings.json")" ] \
+  && pass "permissions are exactly the project's" || fail "permissions changed"
+ls "$F2"/.kit-backup/*/.claude/settings.json >/dev/null 2>&1 && pass "the original settings.json was backed up" || fail "no backup of settings.json"
+grep -qxF ".claude/settings.json" "$F2/.kit-manifest" && fail "the project's settings.json is listed in the manifest" || pass "settings.json stays out of the manifest"
+awk -F'\t' '$2 == ".claude/settings.json" { f = 1 } END { exit f ? 0 : 1 }' "$F2/.kit-baseline" && fail "settings.json is in the install record" || pass "settings.json stays out of the file records"
+grep -q "^#hook" "$F2/.kit-baseline" && pass "the record carries #hook lines" || fail "no #hook lines in the record"
+if ( cd "$F2" && bash ./scripts/doctor.sh >"$F2/.doctor.log" 2>&1 ); then
+  pass "doctor passes the merged project"
+else
+  fail "doctor failed a merged settings.json"; grep -i 'fail\|✗' "$F2/.doctor.log" | head -3
+fi
+# A second plain run changes nothing in settings.json; --upgrade too.
+F2_SUM=$(cksum < "$F2/.claude/settings.json")
+kit "$F2" .install2.log && kit "$F2" .up.log --upgrade
+[ "$F2_SUM" = "$(cksum < "$F2/.claude/settings.json")" ] && pass "re-running and --upgrade leave the merged file alone" || fail "a re-run rewrote settings.json"
+( cd "$F2" && bash "$KIT_ROOT/uninstall.sh" --force >"$F2/.uninstall.log" 2>&1 ) && pass "uninstall beside the merged settings.json ran clean" || fail "uninstall failed"
+cmp -s "$F2/.claude/settings.json" "$F2/.orig.json" && pass "uninstall gives back the project's settings.json byte for byte" || fail "settings.json differs from the original after uninstall"
+[ ! -e "$F2/.claude/hooks/quality-gate.sh" ] && pass "and the kit's hook scripts are gone" || fail "a kit hook script is left"
+
+# A PATH without python3, to install the way a machine without it does.
+NOPY="$XTMP/nopy-bin"; mkdir -p "$NOPY"
+OLDIFS=$IFS; IFS=:
+for d in $PATH; do
+  [ -d "$d" ] || continue
+  for f in "$d"/*; do
+    n=${f##*/}
+    case "$n" in python|python3*) continue ;; esac
+    [ -x "$f" ] && [ ! -e "$NOPY/$n" ] && ln -s "$f" "$NOPY/$n"
+  done
+done
+IFS=$OLDIFS
+echo "== --upgrade registers the hooks an earlier install left out of the project's settings.json =="
+# v1.23.0 only warned about a settings.json it kept, so there are no #hook records.
+F5="$XTMP/f5"; mkdir -p "$F5/.claude"
+echo '{"name":"f5","version":"1.0.0"}' > "$F5/package.json"
+printf '{\n  "permissions": {\n    "allow": [\n      "Mine"\n    ]\n  }\n}\n' > "$F5/.claude/settings.json"
+F5_PERMS=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permissions"]))' "$F5/.claude/settings.json")
+( cd "$F5" && env PATH="$NOPY" bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >.install.log 2>&1 </dev/null ) || fail "install without python3 failed"
+! grep -q 'quality-gate.sh' "$F5/.claude/settings.json" && pass "the earlier install left the kit's hooks unregistered" || fail "the fixture is already merged"
+( cd "$F5" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" --diff >.diff.log 2>&1 </dev/null ) && pass "--diff ran clean" || fail "--diff failed"
+F5_DIFF=$(strip_log "$F5/.diff.log")
+[[ "$F5_DIFF" == *"+ .claude/hooks/quality-gate.sh (PostToolUse)"* && "$F5_DIFF" == *"~ .claude/settings.json"* ]] \
+  && pass "--diff names the missing hooks and lists settings.json as an update" || fail "--diff does not plan the registration"
+[[ "$F5_DIFF" != *"Kit hooks not registered"* ]] && pass "--diff no longer reports them as a manual to-do" || fail "--diff still asks for manual registration"
+( cd "$F5" && bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" --upgrade >.up.log 2>&1 </dev/null ) && pass "--upgrade ran clean" || fail "--upgrade failed"
+same_counts "$F5" .diff.log .up.log "a v1.23.0-style brownfield install"
+grep -q 'quality-gate.sh' "$F5/.claude/settings.json" && pass "--upgrade registered the hooks" || fail "--upgrade left settings.json without the kit's hooks"
+[ "$F5_PERMS" = "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["permissions"]))' "$F5/.claude/settings.json")" ] && pass "and left the permissions alone" || fail "permissions changed"
+( cd "$F5" && bash ./scripts/doctor.sh >"$F5/.doctor.log" 2>&1 ) && pass "doctor passes afterwards" || fail "doctor failed after the upgrade"
+
+echo "== a settings.json the kit can't edit keeps the warning and doctor fails =="
+F2N="$XTMP/f2-nopy"; mkdir -p "$F2N/.claude"
+echo '{"name":"f2","version":"1.0.0"}' > "$F2N/package.json"; printf '{"permissions":{"allow":[]}}\n' > "$F2N/.claude/settings.json"
+F2N_SUM=$(cksum < "$F2N/.claude/settings.json")
+( cd "$F2N" && env PATH="$NOPY" bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >.install.log 2>&1 </dev/null ) && pass "install without python3 ran clean" || fail "install without python3 failed"
+[ "$F2N_SUM" = "$(cksum < "$F2N/.claude/settings.json")" ] && pass "settings.json is untouched without python3" || fail "settings.json changed without python3"
+F2_LOG=$(strip_log "$F2N/.install.log")
 [[ "$F2_LOG" == *"registers none of these kit hooks"* ]] && pass "the install warns about the unregistered hooks" || fail "no unregistered-hooks warning"
 [[ "$F2_LOG" == *"quality-gate.sh"* ]] && pass "and names them" || fail "the hooks aren't named"
-if ( cd "$F2" && bash ./scripts/doctor.sh >"$F2/.doctor.log" 2>&1 ); then
+if ( cd "$F2N" && bash ./scripts/doctor.sh >"$F2N/.doctor.log" 2>&1 ); then
   fail "doctor passed a project whose settings.json wires no kit hook"
 else
   pass "doctor fails it"
 fi
-[[ "$(strip_log "$F2/.doctor.log")" == *"quality-gate.sh"* ]] && pass "and names the hook" || fail "doctor doesn't name the hook"
+[[ "$(strip_log "$F2N/.doctor.log")" == *"quality-gate.sh"* ]] && pass "and names the hook" || fail "doctor doesn't name the hook"
+F2C="$XTMP/f2-compact"; mkdir -p "$F2C/.claude"
+echo '{"name":"f2","version":"1.0.0"}' > "$F2C/package.json"; printf '{"permissions":{"allow":["Mine"]}}\n' > "$F2C/.claude/settings.json"
+kit "$F2C" .install.log && [[ "$(strip_log "$F2C/.install.log")" == *"reformatted"* ]] \
+  && pass "a compact settings.json is merged and the install says it was reformatted" || fail "no reformat notice for a compact settings.json"
+F2J="$XTMP/f2-jsonc"; mkdir -p "$F2J/.claude"
+echo '{"name":"f2","version":"1.0.0"}' > "$F2J/package.json"; printf '{\n  // mine\n  "permissions": {}\n}\n' > "$F2J/.claude/settings.json"
+F2J_SUM=$(cksum < "$F2J/.claude/settings.json")
+kit "$F2J" .install.log && pass "install beside a settings.json with comments ran clean" || fail "install failed"
+[ "$F2J_SUM" = "$(cksum < "$F2J/.claude/settings.json")" ] && pass "a settings.json with comments is never written" || fail "a JSONC settings.json was rewritten"
+[[ "$(strip_log "$F2J/.install.log")" == *"registers none of these kit hooks"* ]] && pass "and the warning stays" || fail "no warning for the JSONC file"
+echo "== merge edge cases through the installer: no python3 later, a kept hook, the strict profile =="
+# Uninstall with no python3 leaves settings.json alone and says so; upgrade keeps the records.
+F6="$XTMP/f6"; mkdir -p "$F6/.claude"
+echo '{"name":"f6","version":"1.0.0"}' > "$F6/package.json"
+printf '{\n  "permissions": {\n    "allow": [\n      "Mine"\n    ]\n  }\n}\n' > "$F6/.claude/settings.json"
+kit "$F6" .install.log
+F6_HOOKS=$(grep -c '^#hook' "$F6/.kit-baseline")
+( cd "$F6" && env PATH="$NOPY" bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" --upgrade >.up-nopy.log 2>&1 </dev/null ) && pass "--upgrade without python3 ran clean over a merged project" || fail "--upgrade without python3 failed"
+[ "$F6_HOOKS" -gt 0 ] && [ "$F6_HOOKS" = "$(grep -c '^#hook' "$F6/.kit-baseline")" ] && pass "the #hook records survive a run that couldn't merge" || fail "the #hook records changed: $F6_HOOKS -> $(grep -c '^#hook' "$F6/.kit-baseline")"
+F6_SUM=$(cksum < "$F6/.claude/settings.json")
+( cd "$F6" && env PATH="$NOPY" bash "$KIT_ROOT/uninstall.sh" --force >.un-nopy.log 2>&1 </dev/null ) && pass "uninstall without python3 ran clean" || fail "uninstall without python3 failed"
+[ "$F6_SUM" = "$(cksum < "$F6/.claude/settings.json")" ] && pass "settings.json is left as it was without python3" || fail "settings.json changed without python3"
+[[ "$(strip_log "$F6/.un-nopy.log")" == *"still registers kit hooks that were removed"* ]] && pass "and the uninstall names the problem" || fail "no warning about the entries left behind"
+
+# A project hook with a kit file name is kept by the install and never registered or stripped.
+F7="$XTMP/f7"; mkdir -p "$F7/.claude/hooks"
+echo '{"name":"f7","version":"1.0.0"}' > "$F7/package.json"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$F7/.claude/hooks/quality-gate.sh"
+printf '{\n  "permissions": {}\n}\n' > "$F7/.claude/settings.json"
+kit "$F7" .install.log
+! grep -q 'hooks/quality-gate.sh' "$F7/.claude/settings.json" && grep -q 'secret-scan.sh' "$F7/.claude/settings.json" \
+  && pass "a kept project hook named like a kit hook is not registered; the others are" || fail "the project's quality-gate.sh was registered (or nothing was)"
+F7_HOOK=$(cksum < "$F7/.claude/hooks/quality-gate.sh")
+( cd "$F7" && bash "$KIT_ROOT/uninstall.sh" --force >.uninstall.log 2>&1 </dev/null )
+[ "$F7_HOOK" = "$(cksum < "$F7/.claude/hooks/quality-gate.sh")" ] && printf '{\n  "permissions": {}\n}\n' | cmp -s - "$F7/.claude/settings.json" \
+  && pass "uninstall leaves the project's hook and gives back its settings.json" || fail "the project's hook or settings.json changed after uninstall"
+
+# The strict profile: hooks and env keys merged, and removed again.
+F8="$XTMP/f8"; mkdir -p "$F8/.claude"
+echo '{"name":"f8","version":"1.0.0"}' > "$F8/package.json"
+printf '{\n  "permissions": {\n    "allow": [\n      "Mine"\n    ]\n  }\n}\n' > "$F8/.claude/settings.json"
+cp "$F8/.claude/settings.json" "$F8/.orig.json"
+kit "$F8" .install.log --profile strict
+grep -q 'ACK_PROTECT_BUILD_CONFIGS' "$F8/.claude/settings.json" && grep -q 'test-gate\|stop-gate' "$F8/.claude/settings.json" \
+  && pass "the strict profile adds its env keys and hooks to the project's settings.json" || fail "strict merge missed env keys or hooks"
+( cd "$F8" && bash "$KIT_ROOT/uninstall.sh" --force >.uninstall.log 2>&1 </dev/null )
+cmp -s "$F8/.claude/settings.json" "$F8/.orig.json" && pass "uninstall gives back the project's settings.json after a strict merge" || fail "settings.json differs after a strict merge + uninstall"
+
 # A kit-written settings.json with one hook removed only warns.
 F2B="$XTMP/f2b"; fresh "$F2B"
 python3 - "$F2B/.claude/settings.json" <<'PY'
@@ -1542,6 +1685,215 @@ KC_BEFORE=$(cd "$KC" && cksum CLAUDE.project.md agent_docs/project/custom.md)
 ( cd "$KC" && bash "$KC/uninstall.sh" --force >"$KC/.uninstall.log" 2>&1 )
 [ "$KC_BEFORE" = "$(cd "$KC" && cksum CLAUDE.project.md agent_docs/project/custom.md 2>&1)" ] \
   && pass "an edited overlay and a project file survive in the kit's own tree" || fail "uninstall deleted files in the kit's own tree"
+
+# --- R2 PR B: settings engine ---------------------------------------------------
+echo "== settings engine: merge, strip and rewrite the kit's entries by owner =="
+settings_block() { sed -n '/^# >>> ack-settings$/,/^# <<< ack-settings$/p' "$1"; }
+settings_block "$KIT_ROOT/install.sh" > "$XTMP/set.install"
+settings_block "$KIT_ROOT/uninstall.sh" > "$XTMP/set.uninstall"
+[ -s "$XTMP/set.install" ] && pass "install.sh carries the settings block" || fail "no ack-settings block in install.sh"
+cmp -s "$XTMP/set.install" "$XTMP/set.uninstall" && pass "uninstall.sh's settings block is identical" || fail "uninstall.sh's settings block differs from install.sh"
+# shellcheck disable=SC1090
+. "$XTMP/set.install" 2>/dev/null || true
+SE="$XTMP/settings-engine"; mkdir -p "$SE"
+cat > "$SE/kit.json" <<'J'
+{"permissions":{"allow":["KitPerm"]},"hooks":{
+ "SessionStart":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/a.sh"}]}],
+ "PreToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/b.sh"},{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/c.sh"}]}]}}
+J
+cat > "$SE/kit-strict.json" <<'J'
+{"env":{"ACK_PROTECT_BUILD_CONFIGS":"1"},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/a.sh"}]}]}}
+J
+printf '%s\n' .claude/hooks/a.sh .claude/hooks/b.sh .claude/hooks/c.sh > "$SE/kit-hooks"
+: > "$SE/norec"
+# se_count <file> — how many handlers the file registers.
+se_count() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(len(g["hooks"]) for gs in d.get("hooks",{}).values() for g in gs))' "$1"; }
+se_has() { grep -qF -- "$2" "$1"; }
+
+# 1. the project has permissions and no hooks
+printf '{\n  "permissions": {\n    "allow": [\n      "Mine"\n    ]\n  }\n}\n' > "$SE/s1.json"
+S1_OUT=$(ack_settings merge "$SE/s1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+[ "$(se_count "$SE/s1.json")" = 3 ] && pass "merge registers the three kit hooks" || fail "merge did not register the kit hooks: $S1_OUT"
+se_has "$SE/s1.json" '"Mine"' && ! se_has "$SE/s1.json" KitPerm && pass "the project's permissions stay and the kit's are not merged" || fail "permissions were touched"
+S1_SUM=$(cksum < "$SE/s1.json")
+S1_RECS=$(printf '%s\n' "$S1_OUT" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5} $1=="created"{printf "#hookkey\t%s\n",$2}')
+printf '%s\n' "$S1_RECS" > "$SE/s1.rec"
+ack_settings merge "$SE/s1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/s1.rec" >/dev/null 2>&1
+[ "$S1_SUM" = "$(cksum < "$SE/s1.json")" ] && pass "a second merge writes nothing" || fail "a second merge changed the file"
+ack_settings strip "$SE/s1.json" "" "$SE/kit-hooks" "$SE/s1.rec" >/dev/null 2>&1
+printf '{\n  "permissions": {\n    "allow": [\n      "Mine"\n    ]\n  }\n}\n' | cmp -s - "$SE/s1.json" && pass "strip of a merge gives back the original bytes" || fail "strip did not restore the original file"
+
+# 2. an own hook in the same event; 6. a project hook named like a kit hook
+cat > "$SE/s2.json" <<'J'
+{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"./mine.sh"}]}],
+ "SessionStart":[{"hooks":[{"type":"command","command":".claude/hooks/project/a.sh"}]}]}}
+J
+ack_settings merge "$SE/s2.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+[ "$(se_count "$SE/s2.json")" = 5 ] && se_has "$SE/s2.json" './mine.sh' && se_has "$SE/s2.json" 'hooks/project/a.sh' \
+  && pass "an own hook and a project hook named like a kit hook stay; the kit's three are added" || fail "merge disturbed the project's own hooks"
+ack_settings strip "$SE/s2.json" "" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+[ "$(se_count "$SE/s2.json")" = 2 ] && se_has "$SE/s2.json" 'hooks/project/a.sh' && pass "strip removes only the kit's entries" || fail "strip removed a project hook"
+ack_settings rewrite "$SE/s2.json" "" "$SE/kit-hooks" "$SE/norec" .claude/hooks/a.sh=.claude/kit/hooks/a.sh >/dev/null 2>&1
+se_has "$SE/s2.json" 'hooks/project/a.sh' && ! se_has "$SE/s2.json" 'kit/hooks/a.sh' && pass "rewrite never touches an entry under hooks/project/" || fail "rewrite changed a project hook"
+
+# 3. a kit hook registered only in settings.local.json
+printf '{"hooks":{}}\n' > "$SE/s3.json"
+printf '{"hooks":{"PreToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":".claude/hooks/b.sh"}]}]}}\n' > "$SE/settings.local.json"
+ack_settings merge "$SE/s3.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+[ "$(se_count "$SE/s3.json")" = 2 ] && ! se_has "$SE/s3.json" 'b.sh' && pass "a hook registered only in settings.local.json is not added" || fail "merge registered a hook twice"
+rm -f "$SE/settings.local.json"
+
+# 4. an edited kit entry is kept; rewrite changes only its path
+cat > "$SE/s4.json" <<'J'
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/a.sh","timeout":99}]}]}}
+J
+S4_OUT=$(ack_settings merge "$SE/s4.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+grep -q '^edited' <<<"$S4_OUT" && se_has "$SE/s4.json" '"timeout": 99' \
+  && pass "an edited kit entry is kept and reported" || fail "an edited kit entry was replaced or not reported"
+ack_settings rewrite "$SE/s4.json" "" "$SE/kit-hooks" "$SE/norec" .claude/hooks/a.sh=.claude/kit/hooks/a.sh >/dev/null 2>&1
+se_has "$SE/s4.json" '.claude/kit/hooks/a.sh' && se_has "$SE/s4.json" '"timeout": 99' && pass "rewrite changes the path and keeps the user's fields" || fail "rewrite lost a field"
+S4_SUM=$(cksum < "$SE/s4.json")
+ack_settings rewrite "$SE/s4.json" "" "$SE/kit-hooks" "$SE/norec" .claude/hooks/a.sh=.claude/kit/hooks/a.sh >/dev/null 2>&1
+[ "$S4_SUM" = "$(cksum < "$SE/s4.json")" ] && pass "a second rewrite writes nothing" || fail "a second rewrite changed the file"
+
+# 5. an entry the kit no longer registers: removed when unchanged
+printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":".claude/hooks/old.sh"}]}]}}\n' > "$SE/s5.json"
+cat > "$SE/kit-old.json" <<'J'
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":".claude/hooks/old.sh"}]}]}}
+J
+echo .claude/hooks/old.sh > "$SE/hooks-old"
+OLD_REC=$(ack_settings plan "$SE/s5.json" "$SE/kit-old.json" "$SE/hooks-old" "$SE/norec" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5}')
+printf '%s\n' "$OLD_REC" > "$SE/s5.rec"
+printf '%s\n' .claude/hooks/old.sh .claude/hooks/a.sh > "$SE/kit-hooks2"
+ack_settings merge "$SE/s5.json" "$SE/kit.json" "$SE/kit-hooks2" "$SE/s5.rec" >/dev/null 2>&1
+! se_has "$SE/s5.json" old.sh && se_has "$SE/s5.json" a.sh && pass "a stale kit entry is removed and the current one added" || fail "the stale entry stayed"
+
+# statusLine
+printf '{"statusLine":{"type":"command","command":"./scripts/statusline.sh"}}\n' > "$SE/s8.json"
+ack_settings rewrite "$SE/s8.json" "" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+se_has "$SE/s8.json" '"./scripts/statusline.sh"' && pass "statusLine stays without a pair" || fail "statusLine changed without a pair"
+ack_settings rewrite "$SE/s8.json" "" "$SE/kit-hooks" "$SE/norec" scripts/statusline.sh=.claude/kit/scripts/statusline.sh >/dev/null 2>&1
+se_has "$SE/s8.json" '.claude/kit/scripts/statusline.sh' && pass "statusLine is rewritten when the kit owns the script" || fail "statusLine was not rewritten"
+
+# relative legacy command
+printf '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":".claude/hooks/a.sh"}]}]}}\n' > "$SE/s7.json"
+ack_settings rewrite "$SE/s7.json" "" "$SE/kit-hooks" "$SE/norec" .claude/hooks/a.sh=.claude/kit/hooks/a.sh >/dev/null 2>&1
+se_has "$SE/s7.json" '"command": ".claude/kit/hooks/a.sh"' && pass "a relative legacy command is rewritten in place" || fail "the relative command was not rewritten"
+
+# 9. indent round trip
+printf '{\n    "permissions": {\n        "allow": []\n    }\n}\n' > "$SE/s9.json"
+ack_settings merge "$SE/s9.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+grep -q '^        "SessionStart"' "$SE/s9.json" && pass "a 4-space file stays 4-space" || fail "the 4-space indent was lost"
+printf '{\n\t"permissions": {\n\t\t"allow": []\n\t}\n}\n' > "$SE/s10.json"
+ack_settings merge "$SE/s10.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+grep -q "^$(printf '\t\t')\"SessionStart\"" "$SE/s10.json" && pass "a tab-indented file stays tab-indented" || fail "the tab indent was lost"
+
+# 10. JSONC is never written
+printf '{\n  // mine\n  "permissions": {}\n}\n' > "$SE/s11.json"
+S11_SUM=$(cksum < "$SE/s11.json")
+S11_OUT=$(ack_settings merge "$SE/s11.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+[ "$S11_SUM" = "$(cksum < "$SE/s11.json")" ] && grep -q '^manual' <<<"$S11_OUT" && pass "a file with comments is left alone and reported manual" || fail "a JSONC file was written: $S11_OUT"
+
+# 11. a symlinked settings.json is written through
+printf '{}\n' > "$SE/real.json"; ln -sf real.json "$SE/s12.json"
+ack_settings merge "$SE/s12.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+[ -L "$SE/s12.json" ] && [ "$(se_count "$SE/real.json")" = 3 ] && pass "a symlinked settings.json is written through" || fail "the symlink was replaced"
+
+# 14. strict env keys: added when absent, never overwritten, stripped when still the kit's
+printf '{"env":{"ACK_PROTECT_BUILD_CONFIGS":"0"}}\n' > "$SE/s13.json"
+ack_settings merge "$SE/s13.json" "$SE/kit-strict.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+se_has "$SE/s13.json" '"ACK_PROTECT_BUILD_CONFIGS": "0"' && pass "an ACK_ env key the project set is not overwritten" || fail "the project's env value was replaced"
+printf '{}\n' > "$SE/s14.json"
+S14_OUT=$(ack_settings merge "$SE/s14.json" "$SE/kit-strict.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+se_has "$SE/s14.json" '"ACK_PROTECT_BUILD_CONFIGS": "1"' && pass "a missing ACK_ env key is added" || fail "the env key was not added"
+printf '%s\n' "$S14_OUT" | awk -F'\t' '$1=="created"{printf "#hookkey\t%s\n",$2}' > "$SE/s14.rec"
+ack_settings strip "$SE/s14.json" "$SE/kit-strict.json" "$SE/kit-hooks" "$SE/s14.rec" >/dev/null 2>&1
+printf '{}\n' | cmp -s - "$SE/s14.json" && pass "strip removes the env key it added" || fail "strip left the env key"
+
+# an empty "hooks" the project had is not removed again by strip
+printf '{"hooks":{}}\n' > "$SE/s15.json"
+S15_OUT=$(ack_settings merge "$SE/s15.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+printf '%s\n' "$S15_OUT" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5} $1=="created"{printf "#hookkey\t%s\n",$2}' > "$SE/s15.rec"
+ack_settings strip "$SE/s15.json" "" "$SE/kit-hooks" "$SE/s15.rec" >/dev/null 2>&1
+printf '{\n  "hooks": {}\n}\n' | cmp -s - "$SE/s15.json" && pass "strip keeps the empty hooks object the project had" || fail "strip removed the project's own empty hooks key"
+
+# a path registered under two matchers (the real kit does this for protect-files.sh)
+cat > "$SE/kit-2m.json" <<'J'
+{"hooks":{"PreToolUse":[
+ {"matcher":"Edit|Write","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/b.sh"}]},
+ {"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/b.sh"}]}]}}
+J
+echo .claude/hooks/b.sh > "$SE/hooks-b"
+printf '{}\n' > "$SE/m1.json"
+M1_OUT=$(ack_settings merge "$SE/m1.json" "$SE/kit-2m.json" "$SE/hooks-b" "$SE/norec" 2>&1)
+printf '%s\n' "$M1_OUT" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5} $1=="created"{printf "#hookkey\t%s\n",$2}' > "$SE/m1.rec"
+M1_SUM=$(cksum < "$SE/m1.json")
+ack_settings merge "$SE/m1.json" "$SE/kit-2m.json" "$SE/hooks-b" "$SE/m1.rec" >/dev/null 2>&1
+[ "$(se_count "$SE/m1.json")" = 2 ] && [ "$M1_SUM" = "$(cksum < "$SE/m1.json")" ] \
+  && pass "a hook under two matchers is registered twice, and a second merge adds nothing" || fail "the two-matcher hook was collapsed or duplicated"
+ack_settings strip "$SE/m1.json" "" "$SE/hooks-b" "$SE/m1.rec" >/dev/null 2>&1
+printf '{}\n' | cmp -s - "$SE/m1.json" && pass "strip removes both matcher entries" || fail "strip left a matcher entry"
+printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\\"$CLAUDE_PROJECT_DIR\\"/.claude/hooks/b.sh"}]}]}}\n' > "$SE/m2.json"
+ack_settings merge "$SE/m2.json" "$SE/kit-2m.json" "$SE/hooks-b" "$SE/norec" >/dev/null 2>&1
+[ "$(se_count "$SE/m2.json")" = 1 ] && pass "a project that registered the hook already gets no second copy" || fail "the hook was registered twice: $(se_count "$SE/m2.json")"
+
+# update: the kit's entry changed and the project's copy is still the recorded one
+printf '{}\n' > "$SE/u1.json"
+U1_OUT=$(ack_settings merge "$SE/u1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+printf '%s\n' "$U1_OUT" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5}' > "$SE/u1.rec"
+cat > "$SE/kit-v2.json" <<'J'
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/a.sh","timeout":5}]}]}}
+J
+U1_OUT2=$(ack_settings merge "$SE/u1.json" "$SE/kit-v2.json" "$SE/kit-hooks" "$SE/u1.rec" 2>&1)
+grep -q '^update' <<<"$U1_OUT2" && se_has "$SE/u1.json" '"timeout": 5' \
+  && pass "an unedited kit entry is updated to the kit's newer one" || fail "the kit's newer entry was not applied"
+# ...and an edited one is kept, with its old record carried on
+printf '{}\n' > "$SE/u2.json"
+ack_settings merge "$SE/u2.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+sed -i.bak 's/a\.sh"/a.sh", "timeout": 99/' "$SE/u2.json"; rm -f "$SE/u2.json.bak"
+U2_OUT=$(ack_settings merge "$SE/u2.json" "$SE/kit-v2.json" "$SE/kit-hooks" "$SE/u1.rec" 2>&1)
+grep -q '^edited' <<<"$U2_OUT" && se_has "$SE/u2.json" '"timeout": 99' && grep -q '^record.*SessionStart' <<<"$U2_OUT" \
+  && pass "an edited kit entry stays, reported, and its record is carried on" || fail "an edited entry with a record was mishandled: $U2_OUT"
+
+# paths that are not the project's own, and commands that are not just the hook
+cat > "$SE/a1.json" <<'J'
+{"hooks":{"Stop":[{"hooks":[
+ {"type":"command","command":"bash ~/.claude/hooks/a.sh --global"},
+ {"type":"command","command":"/opt/shared/.claude/hooks/b.sh"},
+ {"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/c.sh --flag"}]}]}}
+J
+ack_settings merge "$SE/a1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+[ "$(se_count "$SE/a1.json")" = 5 ] && pass "a global or foreign hook with a kit file name doesn't stop the kit registering its own" || fail "a foreign path was taken for the kit's hook ($(se_count "$SE/a1.json") handlers)"
+A1_OUT=$(ack_settings strip "$SE/a1.json" "" "$SE/kit-hooks" "$SE/norec" 2>&1)
+[ "$(se_count "$SE/a1.json")" = 3 ] && se_has "$SE/a1.json" '~/.claude/hooks/a.sh --global' && se_has "$SE/a1.json" '/opt/shared' && se_has "$SE/a1.json" 'c.sh --flag' \
+  && pass "strip leaves the project's foreign paths and its hook with arguments" || fail "strip removed one of the project's own handlers"
+grep -q '^left.*c.sh' <<<"$A1_OUT" && pass "and names the one that still runs a removed kit script" || fail "strip did not report the entry that still names a kit script"
+
+# env keys the project set are not the kit's to remove
+printf '{"env":{"ACK_PROTECT_BUILD_CONFIGS":"1"}}\n' > "$SE/e1.json"
+ack_settings merge "$SE/e1.json" "$SE/kit-strict.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+ack_settings strip "$SE/e1.json" "" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+se_has "$SE/e1.json" 'ACK_PROTECT_BUILD_CONFIGS' && pass "strip keeps an ACK_ key the project set itself, even with the kit's value" || fail "strip deleted the project's own env key"
+
+# an empty group the project had is not the kit's to delete
+printf '{\n  "hooks": {\n    "Stop": [\n      {\n        "hooks": []\n      }\n    ]\n  }\n}\n' > "$SE/g1.json"
+cp "$SE/g1.json" "$SE/g1.orig"
+G1_OUT=$(ack_settings merge "$SE/g1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+printf '%s\n' "$G1_OUT" | awk -F'\t' '$1=="record"{printf "#hook\t%s\t%s\t%s\t%s\n",$2,$3,$4,$5} $1=="created"{printf "#hookkey\t%s\n",$2}' > "$SE/g1.rec"
+ack_settings strip "$SE/g1.json" "" "$SE/kit-hooks" "$SE/g1.rec" >/dev/null 2>&1
+cmp -s "$SE/g1.json" "$SE/g1.orig" && pass "merge then strip keeps the project's empty group" || fail "the project's empty group was removed"
+
+# a shape the engine can't handle is reported, not a traceback, and not written
+printf '{"hooks":{"SessionStart":{}}}\n' > "$SE/x1.json"
+X1_SUM=$(cksum < "$SE/x1.json")
+X1_OUT=$(ack_settings merge "$SE/x1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" 2>&1)
+[ "$X1_SUM" = "$(cksum < "$SE/x1.json")" ] && grep -q '^manual' <<<"$X1_OUT" && ! grep -q Traceback <<<"$X1_OUT" \
+  && pass "an unexpected shape is reported as manual and left alone" || fail "an odd settings shape was mishandled: $X1_OUT"
+
+# plan never writes
+printf '{}\n' > "$SE/p1.json"; P1_SUM=$(cksum < "$SE/p1.json")
+ack_settings plan "$SE/p1.json" "$SE/kit.json" "$SE/kit-hooks" "$SE/norec" >/dev/null 2>&1
+[ "$P1_SUM" = "$(cksum < "$SE/p1.json")" ] && pass "plan writes nothing" || fail "plan changed the file"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then
