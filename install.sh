@@ -560,6 +560,16 @@ prev_manifest_lists() {
   awk -v p="$1" '$0 == p || index(p, $0 "/") == 1 { f = 1 } END { exit f ? 0 : 1 }' "$DEST/$MANIFEST_FILE"
 }
 
+# owner_of <rel> — ack_owner, with one reading fixed: only a record marked complete
+# (ADR-030) says an unlisted file is the project's. Under an unmarked record it may
+# be a kit file the partial record missed, so it is judged like no record at all.
+owner_of() {
+  local st
+  st=$(ack_owner "$DEST" "$1")
+  if [ "$st" = unrecorded ] && [ "$RECORD_WAS_MARKED" != true ]; then st=no-record; fi
+  echo "$st"
+}
+
 # version_is_kit — is $DEST/VERSION the kit's? Missing: it will be written. Recorded
 # and unchanged: yes; recorded and edited: no. Not recorded (nothing before R1
 # recorded VERSION): the kit's only if the old manifest lists it and it still reads
@@ -570,6 +580,11 @@ version_is_kit() {
     kit-edited) return 1 ;;
   esac
   prev_manifest_lists VERSION || return 1
+  # A line the kit could have written: never a release newer than this kit's.
+  local have kit
+  have=$(sed 's/ *#.*//' "$DEST/VERSION" | tr -d '[:space:]')
+  kit=$(sed 's/ *#.*//' "$CLONE_DIR/VERSION" | tr -d '[:space:]')
+  [ "$(printf '%s\n%s\n' "$have" "$kit" | LC_ALL=C sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)" = "$kit" ] || return 1
   awk 'NR == 1 && /^[0-9]+\.[0-9]+\.[0-9]+ # x-release-please-version[ \t\r]*$/ { f = 1 } END { exit f ? 0 : 1 }' "$DEST/VERSION"
 }
 
@@ -578,7 +593,7 @@ version_is_kit() {
 install_file() {
   local src="$1" rel="$2" st
   INSTALL_OURS=false
-  st=$(ack_owner "$DEST" "$rel")
+  st=$(owner_of "$rel")
   case "$st" in
     absent)
       mkdir -p "$(dirname "$DEST/$rel")"
@@ -607,12 +622,30 @@ tree_has_kit_file() {
   local src_dir="${1%/}" rel_dir="$2" f rel
   while IFS= read -r f; do
     rel="$rel_dir/${f#"$src_dir"/}"
-    case "$(ack_owner "$DEST" "$rel")" in
+    case "$(owner_of "$rel")" in
       kit|kit-edited) return 0 ;;
       no-record) prev_manifest_lists "$rel" && return 0 ;;
     esac
   done < <(find "$src_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
   return 1
+}
+
+# chmod_kit_sh <src_dir> <rel_dir> — make the kit's shell scripts executable, and
+# only those: a project script in the same folder keeps its mode. A path the
+# upgrade kept as the project's, or a broken link, is skipped.
+chmod_kit_sh() {
+  local src_dir="$1" rel_dir="$2" f rel y mine
+  for f in "$src_dir"/*.sh; do
+    [ -f "$f" ] || continue
+    rel="$rel_dir/$(basename "$f")"
+    [ -f "$DEST/$rel" ] || continue
+    mine=true
+    for y in ${YOURS_FILES[@]+"${YOURS_FILES[@]}"}; do
+      [ "$y" = "$rel" ] && mine=false
+    done
+    [ "$mine" = true ] && chmod +x "$DEST/$rel" 2>/dev/null
+  done
+  return 0
 }
 
 # upgrade_skill <src_dir> <rel_dir> — --upgrade one skill folder. Where the project
@@ -708,7 +741,7 @@ file_hash() {
 # .kit-baseline the previous run left (rewritten only at the end of this run).
 baseline_lookup() {
   [ -f "$DEST/$BASELINE_FILE" ] || return 0
-  awk -F'\t' -v p="$1" '!/^#/ && $2 == p { print $1; exit }' "$DEST/$BASELINE_FILE"
+  awk -F'\t' -v p="$1" '{ gsub(/\r/, "") } !/^#/ && $2 == p { print $1; exit }' "$DEST/$BASELINE_FILE"
 }
 
 # baseline_template — the template the previous run recorded for CLAUDE.md.
@@ -937,7 +970,10 @@ baseline_write() {
     # A first install, any --upgrade, and a plain run over an already-marked record
     # leave it so; a plain run over an unmarked or missing record does not, and an
     # interrupted run never does.
-    if [ "${1:-}" != partial ] && { [ "$UPGRADE" = true ] || [ "$PRIOR_INSTALL" = false ] || [ "$RECORD_WAS_MARKED" = true ]; }; then
+    # An interrupted run keeps the mark it can vouch for: a first install (what it
+    # hasn't reached is absent, or the project's) and a record that was marked. An
+    # --upgrade that dies over an unmarked record leaves it unmarked.
+    if [ "$PRIOR_INSTALL" = false ] || [ "$RECORD_WAS_MARKED" = true ] || { [ "${1:-}" != partial ] && [ "$UPGRADE" = true ]; }; then
       printf '#complete\t1\n'
     fi
     if [ -n "$template" ]; then
@@ -948,7 +984,7 @@ baseline_write() {
         printf '%s\n' "${BASELINE_ENTRIES[@]}"
       fi
       if [ -f "$old" ]; then
-        awk '!/^#/' "$old"
+        awk '{ gsub(/\r/, "") } !/^#/' "$old"
       fi
     } | awk -F'\t' 'NF == 2 && !seen[$2]++' | LC_ALL=C sort -t "$(printf '\t')" -k2,2
   } > "$tmp"
@@ -1314,24 +1350,30 @@ else
   info "Using generic template"
 fi
 
+# What the record says before this run touches anything.
+ack_prior_install "$DEST" || PRIOR_INSTALL=false
+ack_record_complete "$DEST" && RECORD_WAS_MARKED=true
+
 # Safety hooks source their library and fail closed without it. A file of the
 # project's own where a kit library file belongs would be sourced in its place, so
 # stop before anything is written rather than install hooks that block every edit.
-if [ "$UPGRADE" != true ] && [ -d "$CLONE_DIR/.claude/hooks/lib" ] && [ -d "$DEST/.claude/hooks/lib" ]; then
+# --upgrade included: over an unmarked record of an earlier install it replaces the
+# file (ADR-023), so only a file it would keep as the project's is fatal.
+if [ -d "$CLONE_DIR/.claude/hooks/lib" ] && [ -d "$DEST/.claude/hooks/lib" ]; then
   for f in "$CLONE_DIR/.claude/hooks/lib/"*.sh; do
     [ -f "$f" ] || continue
     rel=".claude/hooks/lib/$(basename "$f")"
-    case "$(ack_owner "$DEST" "$rel")" in
+    case "$(owner_of "$rel")" in
       absent|kit|kit-edited) ;;
-      no-record) prev_manifest_lists "$rel" || error "$rel exists and isn't the kit's — the kit's hooks would source it and fail. Rename or move it, then run the install again. Nothing was written." ;;
-      *) error "$rel exists and isn't the kit's — the kit's hooks would source it and fail. Rename or move it, then run the install again. Nothing was written." ;;
+      *)
+        prev_manifest_lists "$rel" && continue
+        [ "$UPGRADE" = true ] && [ "$PRIOR_INSTALL" = true ] && [ "$RECORD_WAS_MARKED" != true ] && continue
+        error "$rel exists and isn't the kit's — the kit's hooks would source it and fail. Rename or move it, then run the install again. Nothing was written."
+        ;;
     esac
   done
 fi
 
-# What the record says before this run touches anything.
-ack_prior_install "$DEST" || PRIOR_INSTALL=false
-ack_record_complete "$DEST" && RECORD_WAS_MARKED=true
 INSTALL_WRITING=true
 
 # Copy VERSION file (always, all profiles) — unless the project has its own.
@@ -1360,8 +1402,11 @@ if [ "$PROFILE" != "minimal" ]; then
     KIT_TEMPLATE_USED="${TEMPLATE:-generic}"
     ok "Created CLAUDE.md"
   elif [ "$UPGRADE" = true ] && [ "$CLAUDE_MD_UNKNOWN" = true ]; then
-    manifest_add "CLAUDE.md"
-    :  # template unknown — left untouched, reported above
+    # template unknown — left untouched, reported above; listed only if the kit's
+    case "$(ack_owner "$DEST" CLAUDE.md)" in
+      kit|kit-edited) manifest_add "CLAUDE.md" ;;
+      no-record) if prev_manifest_lists CLAUDE.md && kit_claude_md "$DEST/CLAUDE.md"; then manifest_add "CLAUDE.md"; fi ;;
+    esac
   elif [ "$UPGRADE" = true ]; then
     manifest_add "CLAUDE.md"
     upgrade_file "$SRC_CLAUDE" "CLAUDE.md"
@@ -1481,7 +1526,7 @@ if [ "$PROFILE" != "minimal" ]; then
       manifest_add "scripts/$kit_script"
       upgrade_file "$CLONE_DIR/scripts/$kit_script" "scripts/$kit_script"
     done
-    chmod +x "$DEST/scripts/"*.sh 2>/dev/null || true  # a broken link among them fails chmod
+    chmod_kit_sh "$CLONE_DIR/scripts" scripts
   else
     # The project's own scripts/ stays; the kit's scripts go in beside it.
     for kit_script in $(user_script_names); do
@@ -1546,7 +1591,7 @@ elif [ "$UPGRADE" = true ]; then
     done
     manifest_add ".claude/hooks/lib"
   fi
-  chmod +x "$DEST/.claude/hooks/"*.sh 2>/dev/null || true  # a broken link among them fails chmod
+  chmod_kit_sh "$CLONE_DIR/.claude/hooks" .claude/hooks
 else
   for f in "$CLONE_DIR/.claude/hooks/"*.sh; do
     [ -f "$f" ] || continue
@@ -1654,7 +1699,7 @@ if [ "$PROFILE" != "minimal" ]; then
 fi
 
 # Copy settings.json (hooks + permissions config)
-if [ ! -f "$DEST/.claude/settings.json" ] || [ "$UPGRADE" = true ]; then
+if [ ! -f "$DEST/.claude/settings.json" ]; then
   manifest_add ".claude/settings.json"
 else
   # Listed only when the kit wrote it; the project's own settings.json is not ours.

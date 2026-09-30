@@ -856,7 +856,7 @@ mkdir -p "$P/.claude" && echo '{"name":"cs","version":"1.0.0"}' > "$P/package.js
 : > "$P/.claude/agents"    # a regular file where a folder belongs: the run stops at the agents
 kit "$P" .install.log && fail "the install should have stopped at .claude/agents" || pass "the install stopped partway"
 [ -f "$P/.kit-baseline" ] && pass "the interrupted run left a record" || fail "no record after an interrupted run"
-ack_record_complete "$P" && fail "an interrupted run marked the record complete" || pass "the interrupted record is not marked"
+ack_record_complete "$P" && pass "a cut-short first install keeps the mark it can vouch for" || fail "a cut-short first install lost the mark"
 rm -f "$P/.claude/agents"
 kit "$P" .upgrade.log --upgrade && pass "the next --upgrade ran clean" || { fail "the next --upgrade failed"; tail -5 "$P/.upgrade.log"; }
 [ -z "$(find "$P" -name '*.kit-new*')" ] && pass "no .kit-new was written" || fail "a .kit-new was written"
@@ -1363,6 +1363,48 @@ echo "1.0.0 # x-release-please-version" > "$VL/VERSION"
 kit "$VL" .up.log --upgrade
 cmp -s "$KIT_ROOT/VERSION" "$VL/VERSION" && pass "a pre-R1 VERSION is updated" || fail "a pre-R1 VERSION was left behind"
 awk -F'\t' '$2 == "VERSION" { f = 1 } END { exit !f }' "$VL/.kit-baseline" && pass "and now recorded" || fail "and still unrecorded"
+
+# --- review findings on PR B ---------------------------------------------------
+echo "== a cut-short install over a brownfield project never costs it a file =="
+P="$XTMP/cut-brown"; mkdir -p "$P/.claude/skills/debug" "$P/scripts"
+echo '{"name":"cb","version":"1.0.0"}' > "$P/package.json"
+echo '# mine' > "$P/.claude/skills/debug/SKILL.md"; echo 'echo mine' > "$P/scripts/validate.sh"
+: > "$P/.claude/agents"
+kit "$P" .install.log && fail "the install should have stopped" || pass "the install stopped partway"
+rm -f "$P/.claude/agents"
+kit "$P" .up.log --upgrade
+[ "$(cat "$P/scripts/validate.sh")" = "echo mine" ] && [ "$(cat "$P/.claude/skills/debug/SKILL.md")" = "# mine" ] \
+  && pass "the --upgrade after a cut-short install kept the project's files" || fail "the --upgrade overwrote a project file"
+echo "== a failed --upgrade keeps a complete record complete =="
+P="$XTMP/failed-up"; fresh "$P"
+mkdir -p "$P/.claude/agents.d"; rm -f "$P/.claude/agents/planner.md"; mv "$P/.claude/agents" "$P/.claude/agents.real"; : > "$P/.claude/agents"
+kit "$P" .up.log --upgrade && fail "the --upgrade should have failed" || pass "the --upgrade failed"
+rm -f "$P/.claude/agents"; mv "$P/.claude/agents.real" "$P/.claude/agents"
+ack_record_complete "$P" && pass "the failed run left the record marked" || fail "the failed run dropped #complete"
+echo "== --upgrade refuses a project's own hooks/lib file the hooks would source =="
+P="$XTMP/own-lib-up"; mkdir -p "$P/.claude/hooks/lib"; echo '{"name":"o","version":"1.0.0"}' > "$P/package.json"
+echo '# mine' > "$P/.claude/hooks/lib/json-parse.sh"
+kit "$P" .up.log --upgrade && fail "--upgrade went ahead over a foreign hooks/lib file" || pass "--upgrade stopped before writing"
+[ ! -e "$P/.kit-baseline" ] && [ ! -e "$P/.claude/hooks/block-dangerous-commands.sh" ] && pass "and wrote nothing" || fail "it wrote files before stopping"
+echo "== a CRLF record is read like an LF one =="
+P="$XTMP/crlf"; fresh "$P"
+sed 's/$/\r/' "$P/.kit-baseline" > "$P/.kb" && mv "$P/.kb" "$P/.kit-baseline"
+echo '# an older kit version' > "$P/.claude/agents/planner.md"
+kit "$P" .up.log --upgrade
+grep -qxF ".claude/agents/planner.md" "$P/.kit-manifest" && pass "a kit file under a CRLF record stays the kit's (listed)" || fail "a CRLF record made planner.md the project's"
+[[ "$(strip_log "$P/.up.log")" == *" 0 yours"* ]] && pass "and nothing was counted as yours" || fail "a CRLF record produced 'yours' entries"
+echo "== --upgrade chmods only the kit's scripts =="
+P="$XTMP/chmod-own"; mkdir -p "$P/scripts" "$P/.claude/hooks"; echo '{"name":"c","version":"1.0.0"}' > "$P/package.json"
+echo 'echo mine' > "$P/scripts/deploy.sh"; chmod 640 "$P/scripts/deploy.sh"
+echo '#!/bin/sh' > "$P/.claude/hooks/own.sh"; chmod 640 "$P/.claude/hooks/own.sh"
+kit "$P" .install.log; kit "$P" .up.log --upgrade
+[ ! -x "$P/scripts/deploy.sh" ] && [ ! -x "$P/.claude/hooks/own.sh" ] && pass "the project's scripts keep their mode" || fail "a project script was made executable"
+[ -x "$P/.claude/hooks/quality-gate.sh" ] && pass "the kit's hook is executable" || fail "a kit hook isn't executable"
+echo "== a VERSION newer than the kit's is the project's =="
+P="$XTMP/version-newer"; fresh "$P"; echo "9.0.0 # x-release-please-version" > "$P/VERSION"
+grep -v "$(printf '\t')VERSION\$" "$P/.kit-baseline" > "$P/.kb" && mv "$P/.kb" "$P/.kit-baseline"
+kit "$P" .up.log --upgrade
+[ "$(cat "$P/VERSION")" = "9.0.0 # x-release-please-version" ] && pass "a newer release-please VERSION is left alone" || fail "it was overwritten"
 
 echo ""
 if [ "$FAILS" -eq 0 ]; then
