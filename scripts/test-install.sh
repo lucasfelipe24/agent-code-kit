@@ -1197,7 +1197,8 @@ case "$PREVIEW" in *"will also remove empty .claude/"*) fail "--dry-run announce
 AFTER=$(snap "$P")
 [ "$BEFORE" = "$AFTER" ] && pass "every file is back as it was before the install (nothing lost, nothing left)" \
   || fail "the project differs after install + uninstall: $(diff <(echo "$BEFORE") <(echo "$AFTER") | head -6 | tr '\n' ' ')"
-strip_ansi < "$P/.uninstall.log" | grep -qE 'removed [0-9]+ · kept [0-9]+ \(edited [0-9]+, yours [0-9]+, unverified [0-9]+\)' \
+UN_TEXT=$(strip_ansi < "$P/.uninstall.log")
+grep -qE 'removed [0-9]+ · kept [0-9]+ \(edited [0-9]+, yours [0-9]+, unverified [0-9]+\)' <<< "$UN_TEXT" \
   && pass "uninstall ends with removed / kept counts" || fail "no removed / kept summary line"
 
 echo "== uninstall keeps a kit file edited since the install (F9) =="
@@ -1209,8 +1210,9 @@ echo ' ' >> "$P/.claude/settings.json"
 grep -q '# my own rule' "$P/CLAUDE.md" 2>/dev/null && pass "an edited CLAUDE.md survives" || fail "an edited CLAUDE.md was removed"
 assert_file "$P/.claude/settings.json"
 assert_absent "$P/.claude/hooks/protect-files.sh"
-strip_ansi < "$P/.uninstall.log" | grep -q 'edited' && pass "the log says what was kept as edited" || fail "no mention of the kept edited files"
-strip_ansi < "$P/.uninstall.log" | grep -qE 'settings.json.*(hook|register)' \
+UN_TEXT=$(strip_ansi < "$P/.uninstall.log")
+grep -q 'edited' <<< "$UN_TEXT" && pass "the log says what was kept as edited" || fail "no mention of the kept edited files"
+grep -qE 'settings.json.*(hook|register)' <<< "$UN_TEXT" \
   && pass "a kept settings.json is flagged: it still registers hooks that were removed" || fail "no warning about the kept settings.json"
 
 echo "== uninstall never touches settings.json in a project the kit never entered =="
