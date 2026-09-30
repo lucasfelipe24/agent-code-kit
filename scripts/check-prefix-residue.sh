@@ -5,7 +5,8 @@
 # temp file and marker is ACK_ / ack- now; the only code that still recognises
 # the former prefix (doctor's migration, the gate-marker and export-marker
 # carry-over, the upgrade notice) builds it from character codes, so this check
-# needs no allowlist — and doesn't match itself.
+# needs no allowlist — and doesn't match itself. The one exception is a
+# package-lock.json integrity hash, where the letters occur by chance.
 #
 # Untracked files are out of scope by design. Run by sync-manifest.sh --check,
 # which CI's Manifest Sync job and `npm run check` both call.
@@ -30,6 +31,10 @@ for probe in "x$(printf '\103\103\113')_TIMEOUT" "/tmp/$(printf '\143\103\153')-
 done
 
 content=$(git grep -n -I -i -F -e "$needle" -- . 2>/dev/null || true)
+# A lockfile integrity hash is random base64 and contains the three letters by
+# chance (web/package-lock.json, ADR-036). Drop exactly those lines, nothing else.
+content=$(printf '%s\n' "$content" \
+  | grep -v -E '^([^:]*/)?package-lock\.json:[0-9]+:[[:space:]]*"integrity": "sha[0-9]+-[A-Za-z0-9+/]+={0,2}",?$' || true)
 paths=$(git ls-files | grep -i -F -e "$needle" || true)
 
 if [ -n "$content$paths" ]; then

@@ -846,6 +846,12 @@ stay byte-identical — none of the files above is one of them.
 
 ## Up Next
 
+### Docs site — Fumadocs on GitHub Pages (shaped 2026-09-30; implemented, PR open)
+
+Spec: `tasks/specs/2026-09-30-docs-site/` (plan, decisions, references).
+ADR-036 accepted. Worktree `.claude/worktrees/docs-site`, branch
+`worktree-docs-site`.
+
 ### Playbook module (decided 2026-09-28 — do not drop)
 
 Adapt the engineering-playbook material reviewed on 2026-09-28 into the kit.
@@ -946,6 +952,8 @@ Parked scope — deferred work, revisit when prioritized. (CLAUDE.md → Scope D
 
 - **Uninstall without a matching kit copy keeps untouched templates** — `cat uninstall.sh | bash` or a newer `@latest` uninstall can't compare the overlay/artifact templates and keeps them as "yours"; recording their hashes in `.kit-baseline` would fix it. Also: the empty-dir pass drops user-made empty folders under `wiki/`, `raw-sources/`, `artifacts/`, `project/` without listing them; `WIKI_SEED_*` duplicates install.sh's seed text. _(deferred from the R2 PR A review; the overlay-deletion item itself is fixed by PR A)_
 - **Settings merge leftovers from the R2 PR B review** — switching `--profile strict` → `standard` removes the strict-only hooks but keeps the `ACK_*` env keys the kit added; an interrupted run between the write and `baseline_write` loses the `#hookkey` records (uninstall then leaves empty `hooks`/event keys); the hook-path regex exists in three places (`kit_attention_report`, the engine, `settings_kit_hooks`); the temp files of the settings step are not under the EXIT trap; a symlinked `settings.json` shared by several projects is written through (ADR-032 choice); `rewrite` has no caller until R2 D4; duplicate JSON keys collapse on write (reported as reformatted). _(deferred from the R2 PR B review)_
+- **README skill groups miss `/capabilities`** — the "All 37 skills" list in both READMEs has 36 in its groups; `/capabilities` is only in the intro table, so the docs site lists it under "Other". Add it to _Project setup_ in both READMEs. _(found 2026-09-30 by the docs-site generator)_
+- **`gen-skill-docs.sh` guards have no test** — the refuse-to-delete-unmarked-folder guard, exit 2 on bad usage and `--dry-run` writing nothing are only covered by `pages.yml`'s build. Add smoke cases to `scripts/test-cli.sh`. _(found 2026-09-30 by /review-pipeline on the docs-site PR)_
 - **Uninstall leftovers from the PR A review (R1)** — `kit_leftover` is still a second, simpler classifier next to `ack_owner`; the kept-`settings.json` warning doesn't name the hook entries; `VERSION` is always removed; `CLAUDE.md.kit-new` is never swept; the `tasks/` empty-dir pass also removes the project's own empty folders. _(deferred from the PR A adversarial review)_
 
 - **Multi-language test-runner detection** beyond Python/Node/Go/Rust (Ruby, Java, etc.) — the quality gate detects a fixed runner set today. _(deferred from the hook-shift work)_

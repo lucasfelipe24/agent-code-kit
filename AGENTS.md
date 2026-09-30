@@ -93,7 +93,7 @@ Key design principle: CLAUDE.md acts as a **logical directory** — it contains 
 ├── install.sh                     # One-line installer
 ├── uninstall.sh                   # Clean removal of all kit files
 │
-├── .github/workflows/             # validate.yml (CI checks), release.yml (release-please + opt-in npm publish)
+├── .github/workflows/             # validate.yml (CI checks), release.yml (release-please + opt-in npm publish), pages.yml (docs site → GitHub Pages)
 ├── .claude-plugin/                # Claude Code plugin marketplace entry (plugin.json, marketplace.json — ADR-009)
 ├── html-module/templates/         # --html: design-system.html + index.html seeded into a project's artifacts/
 ├── wiki-module/.claude/           # --wiki: wiki-maintainer agent + wiki-briefing / wiki-ingest / wiki-lint skills
@@ -226,7 +226,7 @@ Key design principle: CLAUDE.md acts as a **logical directory** — it contains 
 │   ├── doctor.sh                  # Installation health checker
 │   ├── convert.sh                 # Export CLAUDE.md discipline + agents to each tool's native rules (.cursor/rules, .windsurf/rules, CONVENTIONS.md+.aider.conf.yml, AGENTS.md)
 │   ├── validate-skills.sh         # Validates skill directory structure
-│   ├── gen-skill-docs.sh          # Generates web MDX docs from SKILL.md files
+│   ├── gen-skill-docs.sh          # Generates the docs site's pages (web/content/docs) from READMEs, skills, agents, modules, guides; --check fails on drift
 │   ├── gen-agents-md.sh           # Generates cross-tool AGENTS.md from kit sources
 │   ├── build-skills.sh            # Builds SKILL.md from .tmpl templates + shared blocks
 │   ├── lesson-graph.sh            # Parses typed lesson frontmatter (supersedes/applies_to/contradicts/related_decisions); validates the graph and rewrites the auto sections in tasks/lessons/_index.md
@@ -250,6 +250,12 @@ Key design principle: CLAUDE.md acts as a **logical directory** — it contains 
 ├── scaffold/                      # What a fresh install writes into a project
 │   ├── CODEBASE_MAP.md            # Blank stack-agnostic map — the no-template fallback
 │   └── tasks/                     # Pristine board, ADR log, handoff template, starter lessons
+│
+├── web/                           # Docs site — Fumadocs, static export to GitHub Pages (ADR-036); own package.json, never shipped
+│   ├── DESIGN.md                  # The site's design source of truth
+│   ├── app/[lang]/                # Landing ((home)/) and docs routes, en + pt-BR
+│   ├── components/landing/        # Landing sections (command box, transcript, loop, skill index)
+│   └── content/docs/              # index.mdx + meta.json by hand; everything else generated (gitignored)
 │
 └── examples/                      # Stack-specific templates
     ├── nextjs/                    # Next.js 16 + App Router

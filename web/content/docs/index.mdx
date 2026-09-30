@@ -1,0 +1,25 @@
+---
+title: Introduction
+description: Guardrails for Claude Code. It plans before it codes, stays inside the scope you approved, and can't call a task done while a check is failing.
+---
+
+agent-code-kit is a set of rules, hooks, skills and templates you install into a project. The rules tell Claude how to work. The hooks enforce the parts that can't be left to good intentions: they block an edit to a lock file, a push to `main`, or the end of a task while a check is failing.
+
+```bash
+npx @lucasfelipe23/agent-code-kit init
+```
+
+Everything it installs is plain Markdown and shell. Read it, change it, or remove it with one command.
+
+## Where to start
+
+- [Quick start](/en/docs/guide/quick-start/): install the kit, pick a stack template, run your first session.
+- [How it works](/en/docs/guide/how-it-works/): rules, guardrails, skills and agents, and memory.
+- [Workflows](/en/docs/guide/workflows/): build a feature, fix a bug, review a change.
+- [Guardrails](/en/docs/guide/guardrails/): every hook, when it runs and what it blocks.
+- [Skills](/en/docs/skills/): commands you run in Claude Code with `/name`.
+- [FAQ](/en/docs/guide/faq/): your `CLAUDE.md`, your data, and what to do when a check is stuck.
+
+## About these pages
+
+The guide comes from the kit's README. Skill, agent and module pages are built from the files the kit installs, so a page always matches the version on `main`. Each page links to its source on GitHub.
