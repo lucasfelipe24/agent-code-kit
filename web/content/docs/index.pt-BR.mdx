@@ -1,0 +1,27 @@
+---
+title: Introdução
+description: Guardrails para o Claude Code. Ele planeja antes de codar, fica dentro do escopo que você aprovou e não consegue dar uma tarefa como concluída enquanto uma verificação estiver falhando.
+---
+
+O agent-code-kit é um conjunto de regras, hooks, skills e templates que você instala num projeto. As regras dizem ao Claude como trabalhar. Os hooks garantem o que não pode depender de boa vontade: bloqueiam a edição de um lock file, um push para a `main` ou o fim de uma tarefa enquanto uma verificação falha.
+
+```bash
+npx @lucasfelipe23/agent-code-kit init
+```
+
+Tudo o que ele instala é Markdown e shell. Você pode ler, mudar ou remover com um comando.
+
+## Por onde começar
+
+- [Início rápido](/pt-BR/docs/guide/quick-start/): instale o kit, escolha um template de stack e rode a primeira sessão.
+- [Como funciona](/pt-BR/docs/guide/how-it-works/): regras, guardrails, skills e agentes, e memória.
+- [Fluxos de trabalho](/pt-BR/docs/guide/workflows/): construir uma feature, corrigir um bug, revisar uma mudança.
+- [Guardrails](/pt-BR/docs/guide/guardrails/): cada hook, quando ele roda e o que ele bloqueia.
+- [Skills](/pt-BR/docs/skills/): comandos que você roda no Claude Code com `/nome`.
+- [Perguntas frequentes](/pt-BR/docs/guide/faq/): seu `CLAUDE.md`, seus dados e o que fazer quando uma verificação trava.
+
+## Sobre estas páginas
+
+O guia vem do README do kit. As páginas de skills, agentes e módulos são geradas a partir dos arquivos que o kit instala, então cada página corresponde à versão da `main`. Cada uma tem um link para o arquivo de origem no GitHub.
+
+As páginas de skills, agentes, módulos e guias do agente estão em inglês, porque esse é o idioma dos arquivos do kit.
