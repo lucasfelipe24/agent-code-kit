@@ -36,7 +36,7 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s12 | `prompt-router-injects-on-auth-inflection` | "authentication" → `hookSpecificOutput.additionalContext` non-empty *(regression: word-boundary bug)* |
 | s13 | `prompt-router-quiet-on-neutral` | Neutral prompt → empty stdout |
 | s14 | `session-start-injects-tier1` | Outputs `hookSpecificOutput` JSON (`hookEventName: SessionStart`) whose `additionalContext` references `CODEBASE_MAP.md` |
-| s15 | `session-end-writes-audit-line` | Appends one line to `reports/session-audit.log` |
+| s15 | `session-end-writes-audit-line` | Appends one line to `.hook-state/session-audit.log` |
 | s16 | `session-start-working-tree-silent-on-clean` | Working Tree block stays out of `hookSpecificOutput.additionalContext` on a fresh-checkout (no `.git`) session — silent-on-clean guarantee |
 | s17 | `lesson-resurface-smoke` | `scripts/lesson-resurface.sh` emits the pointer for an archived lesson matching the query vocabulary AND does NOT leak the lesson body's sentinel phrases — pointer-only contract |
 | s18 | `journal-fold-creates-handoff` | `.claude/hooks/journal-fold.sh` folds a `/note`-populated `.hook-state/session-journal.md` (with findings + decisions) into `tasks/handoff-<session-id>.md` at session end |
@@ -179,6 +179,7 @@ Each scenario runs in a **fresh temp directory** — no shared state between sce
 | s160 | `protect-files-blocks-pathspec-files-and-unknown-cwd` | Pathspec files and unresolved cwd-changing shell constructs fail closed; literal safe paths remain allowed |
 | s161 | `stop-gate-carries-over-former-prefix-marker` | A marker written under the kit's former file prefix (ADR-029) is moved to the `ack-gate-*` marker and still blocks the stop |
 | s162 | `protect-files-allows-read-only-git-with-dynamic-dir` | `git -C "$VAR" status` / `log` and a dynamic `cd` before a read stay allowed; the same with `add` still blocks |
+| s163 | `session-end-leaves-project-reports-alone` | The audit log goes to `.hook-state/`; a project's own `reports/` and its `.gitignore` are not touched |
 
 Every blocking scenario for `protect-files`, `block-dangerous-commands`, `branch-protect`, `conventional-commit` and `loop-detect` asserts `stdout_empty` and `stderr_starts_with: "BLOCKED"`: on exit 2 Claude Code feeds the agent stderr, so a reason written to stdout never reaches it.
 
@@ -206,7 +207,7 @@ Drop a JSON file in `bench/scenarios/sNN-<name>.json`:
     "state": [
       { "file": ".hook-state/<state>.json", "field": "status", "equals": "failed" }
     ],
-    "file_grew": ["reports/session-audit.log"]
+    "file_grew": [".hook-state/session-audit.log"]
   },
   "notes": "Optional human-readable context — especially useful for regression scenarios."
 }

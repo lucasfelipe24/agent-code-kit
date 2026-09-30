@@ -1,6 +1,6 @@
 ---
 name: scorecard
-description: Aggregate recent session scorecards from reports/session-audit.log into per-session and windowed summaries — pure numbers, fed by the SessionEnd hook. Use to see quantitative session trends. For narrative reflection use /retro instead.
+description: Aggregate recent session scorecards from .hook-state/session-audit.log into per-session and windowed summaries — pure numbers, fed by the SessionEnd hook. Use to see quantitative session trends. For narrative reflection use /retro instead.
 user-invocable: true
 ---
 
@@ -35,7 +35,7 @@ Not for:
 
 ## Scope Rules
 
-- Reads `reports/session-audit.log` and, when present, `.hook-state/agent-invocations.jsonl` (agent telemetry) — no other sources of truth
+- Reads `.hook-state/session-audit.log` and, when present, `.hook-state/agent-invocations.jsonl` (agent telemetry) — no other sources of truth
 - Parses both v1 (`schema_version` missing or `1`) and v2 records
 - Filters by window if provided; default to the last 7 days
 - Never modifies files; output is a single markdown report
@@ -44,7 +44,7 @@ Not for:
 
 ### Phase 1: Inventory
 
-1. Read `reports/session-audit.log` (one JSONL record per session)
+1. Read `.hook-state/session-audit.log` (one JSONL record per session; an install not yet upgraded still has it at `reports/session-audit.log`)
 2. Parse each line as JSON; skip lines that fail to parse and surface the count
 3. Filter by window: include records whose `timestamp` is within the requested span
 4. Group by `schema_version`:
@@ -125,7 +125,7 @@ Output exactly one report. Keep it scannable. The shape is:
 ...
 ```
 
-If the log is empty: print exactly `No SessionEnd records found at reports/session-audit.log. The SessionEnd hook may not be wired into .claude/settings.json, or no session has ended yet.`
+If the log is empty: print exactly `No SessionEnd records found at .hook-state/session-audit.log (or reports/session-audit.log on an install not yet upgraded). The SessionEnd hook may not be wired into .claude/settings.json, or no session has ended yet.`
 
 If only v1 records exist: render a reduced report ("Quality-gate" and "Per-session detail" only — explain that the rest needs schema_version 2 from a kit that includes the scorecards hooks).
 

@@ -2,7 +2,7 @@
 #
 # session-end.sh — SessionEnd hook
 #
-# Appends a JSON-line audit record to reports/session-audit.log. As of
+# Appends a JSON-line audit record to .hook-state/session-audit.log. As of
 # schema_version 2 the record is a structured session scorecard with metrics
 # aggregated from the session's .hook-state/* files plus the transcript:
 #
@@ -25,13 +25,14 @@ set -euo pipefail
 INPUT=$(cat)
 
 ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
-REPORTS_DIR="$ROOT/reports"
-mkdir -p "$REPORTS_DIR"
-# Self-gitignore: audit logs are transient and machine-local
-[ -f "$REPORTS_DIR/.gitignore" ] || printf 'session-audit.log\n' >"$REPORTS_DIR/.gitignore"
-LOG="$REPORTS_DIR/session-audit.log"
-
 STATE_DIR="$ROOT/.hook-state"
+mkdir -p "$STATE_DIR"
+# Self-gitignore: audit logs are transient and machine-local. The log lives in
+# .hook-state/, never in reports/ — that is a common project folder name, and the
+# kit must not write into (or ignore files inside) a folder that is the project's.
+[ -f "$STATE_DIR/.gitignore" ] || printf '*\n!.gitignore\n' >"$STATE_DIR/.gitignore"
+LOG="$STATE_DIR/session-audit.log"
+
 TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 NOW_EPOCH=$(date +%s)
 

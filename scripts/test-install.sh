@@ -1406,6 +1406,81 @@ grep -v "$(printf '\t')VERSION\$" "$P/.kit-baseline" > "$P/.kb" && mv "$P/.kb" "
 kit "$P" .up.log --upgrade
 [ "$(cat "$P/VERSION")" = "9.0.0 # x-release-please-version" ] && pass "a newer release-please VERSION is left alone" || fail "it was overwritten"
 
+# --- S9: F7 — no terminal, existing CLAUDE.md ----------------------------------
+echo "== install with an existing CLAUDE.md and no terminal keeps going =="
+if command -v python3 >/dev/null 2>&1; then
+  NT="$XTMP/no-tty"; mkdir -p "$NT"
+  echo '{"name":"nt","version":"1.0.0"}' > "$NT/package.json"; echo "# my rules" > "$NT/CLAUDE.md"
+  ( cd "$NT" && python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      bash "$KIT_ROOT/install.sh" --local "$KIT_ROOT" >"$NT/.install.log" 2>&1 < /dev/null )
+  NT_RC=$?
+  [ "$NT_RC" -eq 0 ] && pass "install without a terminal exits 0" || { fail "install without a terminal exited $NT_RC"; tail -4 "$NT/.install.log"; }
+  [ "$(cat "$NT/CLAUDE.md")" = "# my rules" ] && pass "the existing CLAUDE.md is untouched" || fail "CLAUDE.md was changed"
+  [ -f "$NT/.claude/hooks/quality-gate.sh" ] && pass "the kit was installed" || fail "the kit wasn't installed"
+  [[ "$(strip_log "$NT/.install.log")" == *"No terminal"* ]] && pass "the log says it continued without a terminal" || fail "no 'No terminal' line"
+  [[ "$(strip_log "$NT/.install.log")" == *"CLAUDE.md"* ]] && pass "and names the kept CLAUDE.md" || fail "the log doesn't name CLAUDE.md"
+else
+  echo "  - skipped: no python3 to detach the terminal"
+fi
+
+# --- S10: G1 — .kit-baseline in the .gitignore block ---------------------------
+echo "== --gitignore lists .kit-baseline, once =="
+G="$XTMP/gi-new"; mkdir -p "$G"; echo '{"name":"g","version":"1.0.0"}' > "$G/package.json"
+kit "$G" .install.log --gitignore
+grep -qxF ".kit-baseline" "$G/.gitignore" && pass "a new block holds .kit-baseline" || fail "a new block lacks .kit-baseline"
+G2="$XTMP/gi-old"; mkdir -p "$G2"; echo '{"name":"g","version":"1.0.0"}' > "$G2/package.json"
+printf 'node_modules/\n\n# Agent Code Kit (local-only)\nVERSION\n.kit-manifest\nCLAUDE.md\n' > "$G2/.gitignore"
+kit "$G2" .install.log --gitignore; kit "$G2" .install2.log --gitignore
+[ "$(grep -cxF ".kit-baseline" "$G2/.gitignore")" = 1 ] && pass "an old block gains .kit-baseline exactly once over two runs" || fail "an old block has $(grep -cxF ".kit-baseline" "$G2/.gitignore") .kit-baseline lines"
+grep -qxF "node_modules/" "$G2/.gitignore" && grep -qxF "CLAUDE.md" "$G2/.gitignore" && pass "the rest of the file is intact" || fail "the .gitignore lost lines"
+
+# --- S11: F2 — a kept settings.json that doesn't wire the kit's hooks ------------
+echo "== a kept settings.json: the install warns, doctor fails =="
+F2="$XTMP/f2"; mkdir -p "$F2/.claude"
+echo '{"name":"f2","version":"1.0.0"}' > "$F2/package.json"; printf '{"permissions":{"allow":[]}}\n' > "$F2/.claude/settings.json"
+kit "$F2" .install.log && pass "install beside a settings.json ran clean" || fail "install failed"
+F2_LOG=$(strip_log "$F2/.install.log")
+[[ "$F2_LOG" == *"registers none of these kit hooks"* ]] && pass "the install warns about the unregistered hooks" || fail "no unregistered-hooks warning"
+[[ "$F2_LOG" == *"quality-gate.sh"* ]] && pass "and names them" || fail "the hooks aren't named"
+if ( cd "$F2" && bash ./scripts/doctor.sh >"$F2/.doctor.log" 2>&1 ); then
+  fail "doctor passed a project whose settings.json wires no kit hook"
+else
+  pass "doctor fails it"
+fi
+[[ "$(strip_log "$F2/.doctor.log")" == *"quality-gate.sh"* ]] && pass "and names the hook" || fail "doctor doesn't name the hook"
+# A kit-written settings.json with one hook removed only warns.
+F2B="$XTMP/f2b"; fresh "$F2B"
+python3 - "$F2B/.claude/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+for ev, groups in d["hooks"].items():
+    for g in groups:
+        g["hooks"] = [h for h in g["hooks"] if "secret-scan.sh" not in h.get("command", "")]
+json.dump(d, open(p, "w"), indent=2)
+PY
+( cd "$F2B" && bash ./scripts/doctor.sh >"$F2B/.doctor.log" 2>&1 ) && pass "a kit-written settings.json missing a hook doesn't fail doctor" \
+  || { fail "doctor failed a kit-written settings.json"; grep -i 'fail\|✗' "$F2B/.doctor.log" | head -3; }
+
+# --- S12: G2 — the audit log moves out of reports/ on --upgrade -----------------
+echo "== --upgrade moves reports/session-audit.log into .hook-state/ =="
+A="$XTMP/audit-move"; fresh "$A"
+mkdir -p "$A/reports" "$A/.hook-state"
+printf '{"old":1}\n{"old":2}\n' > "$A/reports/session-audit.log"; printf 'session-audit.log\n' > "$A/reports/.gitignore"
+printf '{"new":1}\n' > "$A/.hook-state/session-audit.log"
+kit "$A" .diff.log --diff
+[[ "$(strip_log "$A/.diff.log")" == *"moves reports/session-audit.log"* ]] && pass "--diff prints the planned move" || fail "--diff says nothing about the move"
+[ -f "$A/reports/session-audit.log" ] && pass "--diff moved nothing" || fail "--diff moved the log"
+kit "$A" .up.log --upgrade && pass "--upgrade ran clean" || fail "--upgrade failed"
+[ "$(cat "$A/.hook-state/session-audit.log")" = '{"old":1}
+{"old":2}
+{"new":1}' ] && pass "old lines were put ahead of the new ones" || fail "the moved log differs: $(cat "$A/.hook-state/session-audit.log" | tr '\n' ' ')"
+[ ! -e "$A/reports" ] && pass "the kit's reports/ (log + its own .gitignore) is gone" || fail "reports/ was left: $(ls -A "$A/reports" | tr '\n' ' ')"
+A2="$XTMP/audit-own-reports"; fresh "$A2"
+mkdir -p "$A2/reports"; echo "*.pdf" > "$A2/reports/.gitignore"; echo "q3" > "$A2/reports/q3.txt"; echo '{"x":1}' > "$A2/reports/session-audit.log"
+kit "$A2" .up.log --upgrade
+[ "$(cat "$A2/reports/.gitignore")" = "*.pdf" ] && [ -f "$A2/reports/q3.txt" ] && pass "a project's own reports/ files are untouched" || fail "a project's own reports/ was changed"
+[ ! -e "$A2/reports/session-audit.log" ] && [ -f "$A2/.hook-state/session-audit.log" ] && pass "only the log moved" || fail "the log did not move"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

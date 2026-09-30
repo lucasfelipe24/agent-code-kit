@@ -424,6 +424,11 @@ if [ -f ".claude/settings.json" ]; then
       done
       [ "$DERIVED" != " " ] && OPT_IN_HOOKS="$DERIVED"
     fi
+    # A settings.json the kit didn't write can't be trusted to wire the kit's hooks:
+    # one of them registered in neither settings file is a failure, not a warning.
+    LOCAL_CONTENT=$(cat .claude/settings.local.json 2>/dev/null || true)
+    SETTINGS_NOT_KITS=false
+    case "$(ack_owner . .claude/settings.json)" in unrecorded|no-record) SETTINGS_NOT_KITS=true ;; esac
     for hook in .claude/hooks/*.sh; do
       [ -f "$hook" ] || continue
       basename=$(basename "$hook")
@@ -432,10 +437,20 @@ if [ -f ".claude/settings.json" ]; then
       # which flipped wired hooks to phantom "orphan" warnings.
       if [[ "$SETTINGS_CONTENT" == *"$basename"* ]]; then
         pass "$basename is referenced in settings.json"
+      elif [[ "$LOCAL_CONTENT" == *"$basename"* ]]; then
+        pass "$basename is referenced in settings.local.json"
       elif [[ "$OPT_IN_HOOKS" == *" $basename "* ]]; then
         info "$basename is opt-in, not in standard profile (enable per agent_docs/hooks.md)"
       else
-        warn "$basename exists but is NOT in settings.json (orphan hook)"
+        case "$(ack_owner . "$hook")" in
+          kit|kit-edited) HOOK_IS_KITS=true ;;
+          *) HOOK_IS_KITS=false ;;
+        esac
+        if [ "$SETTINGS_NOT_KITS" = true ] && [ "$HOOK_IS_KITS" = true ]; then
+          fail "$basename is the kit's hook but your settings.json doesn't register it (nor settings.local.json) — it never runs"
+        else
+          warn "$basename exists but is NOT in settings.json (orphan hook)"
+        fi
       fi
     done
   fi

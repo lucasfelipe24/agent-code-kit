@@ -1,0 +1,35 @@
+{
+  "name": "s163-session-end-leaves-project-reports-alone",
+  "hook": ".claude/hooks/session-end.sh",
+  "setup_files": {
+    "reports/.gitignore": "*.pdf\n"
+  },
+  "payload": {
+    "session_id": "kitbench-test",
+    "reason": "clean",
+    "transcript_path": ""
+  },
+  "expect": {
+    "exit_code": 0,
+    "file_grew": [
+      ".hook-state/session-audit.log",
+      ".hook-state/.gitignore"
+    ],
+    "file_absent": [
+      "reports/session-audit.log"
+    ],
+    "file_contains": [
+      {
+        "file": "reports/.gitignore",
+        "substr": "*.pdf"
+      }
+    ],
+    "file_not_contains": [
+      {
+        "file": "reports/.gitignore",
+        "substr": "session-audit.log"
+      }
+    ]
+  },
+  "notes": "G2: the audit log used to live in reports/, a common project folder name. A project's own reports/.gitignore was left without the kit's line, so the log showed up in git status and could be committed. The log now lives in .hook-state/ (ignored by its own .gitignore) and the hook never touches reports/."
+}

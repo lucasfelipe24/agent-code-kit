@@ -478,6 +478,10 @@ run_diff() {
       warn "$p is a symlink — --upgrade writes through it to $f (this preview worked on a copy)"
     fi
   done <<<"$(_kit_symlinks "$DEST")"
+  if [ -f "$DEST/reports/session-audit.log" ] && [ ! -L "$DEST/reports/session-audit.log" ]; then
+    echo ""
+    info "--upgrade moves reports/session-audit.log into .hook-state/session-audit.log (not counted as an update); reports/ is left alone unless the kit's own .gitignore was its only file"
+  fi
   print_attention "$DEST" "$CLONE_DIR"
 
   echo ""
@@ -550,6 +554,7 @@ copy_if_new() {
 #   anything else                    → the project's: untouched, unlisted, reported
 # The manifest and the record then name only what the kit owns (N1).
 INIT_INSTALLED=0
+SETTINGS_KEPT=false
 INIT_KEPT=()
 INSTALL_OURS=false
 
@@ -991,6 +996,34 @@ baseline_write() {
   mv "$tmp" "$DEST/$BASELINE_FILE"
 }
 
+# move_audit_log — the session audit log used to live in reports/, a folder name
+# many projects use themselves. --upgrade moves it to .hook-state/ (ignored by its
+# own .gitignore): the old lines go ahead of any already in the new file, the old
+# file is deleted only if it didn't grow meanwhile, the kit's own reports/.gitignore
+# (exactly "session-audit.log") goes with it, and reports/ is removed only if that
+# leaves it empty. Not an update or an addition.
+move_audit_log() {
+  local old="$DEST/reports/session-audit.log" new="$DEST/.hook-state/session-audit.log" tmp size
+  [ -f "$old" ] && [ ! -L "$old" ] || return 0
+  mkdir -p "$DEST/.hook-state"
+  [ -f "$DEST/.hook-state/.gitignore" ] || printf '*\n!.gitignore\n' > "$DEST/.hook-state/.gitignore"
+  size=$(wc -c < "$old" | tr -d ' ')
+  tmp=$(mktemp "$DEST/.hook-state/.audit.XXXXXX") || return 0
+  { cat "$old"; [ -f "$new" ] && cat "$new"; true; } > "$tmp"
+  mv "$tmp" "$new"
+  if [ "$(wc -c < "$old" | tr -d ' ')" = "$size" ]; then
+    rm -f "$old"
+    ok "Moved reports/session-audit.log to .hook-state/session-audit.log"
+  else
+    warn "reports/session-audit.log grew during the move — left in place; its lines are also in .hook-state/session-audit.log"
+  fi
+  if [ -f "$DEST/reports/.gitignore" ] && [ "$(cat "$DEST/reports/.gitignore")" = "session-audit.log" ]; then
+    rm -f "$DEST/reports/.gitignore"
+  fi
+  rmdir "$DEST/reports" 2>/dev/null || true
+  return 0
+}
+
 # print_upgrade_summary — what --upgrade did, so a quiet log can never hide files
 # that were updated, kept with local edits, or left in conflict.
 print_upgrade_summary() {
@@ -1227,14 +1260,17 @@ else
       echo "       - $f"
     done
     echo ""
-    if [ ! -e /dev/tty ]; then
-      error "Non-interactive environment detected. Use --upgrade to skip confirmation."
-    fi
-    read -p "  Continue? (y/N) " -n 1 -r < /dev/tty
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-      info "Cancelled."
-      exit 0
+    # A terminal is something /dev/tty can be opened on; the file existing proves
+    # nothing (a CI job or a detached process has the file and no terminal).
+    if ! { : < /dev/tty; } 2>/dev/null; then
+      info "No terminal — continuing: existing files are kept, never overwritten"
+    else
+      read -p "  Continue? (y/N) " -n 1 -r < /dev/tty
+      echo ""
+      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        info "Cancelled."
+        exit 0
+      fi
     fi
   fi
 fi
@@ -1723,6 +1759,7 @@ elif [ "$UPGRADE" = true ]; then
   warn "Kept .claude/settings.json (not auto-merged — review new hooks manually)"
 else
   warn "Skipped .claude/settings.json (already exists)"
+  SETTINGS_KEPT=true
 fi
 
 # Copy the MCP allowlist template (mcp-gate.sh is inert until the real file exists)
@@ -1867,12 +1904,21 @@ if [ "$GITIGNORE" = true ]; then
   # Check if we already added kit entries
   if [ -f "$GITIGNORE_FILE" ] && grep -qF "$MARKER" "$GITIGNORE_FILE"; then
     warn ".gitignore already has Agent Code Kit entries — skipping"
+    # A block written before .kit-baseline was listed gains that one line, once.
+    if ! grep -qxF ".kit-baseline" "$GITIGNORE_FILE"; then
+      _gi_tmp=$(mktemp "$DEST/.gitignore.XXXXXX" 2>/dev/null) || _gi_tmp=$(mktemp)
+      awk -v m="$MARKER" '{ print } $0 == m && !done { print ".kit-baseline"; done = 1 }' "$GITIGNORE_FILE" > "$_gi_tmp" \
+        && cat "$_gi_tmp" > "$GITIGNORE_FILE"
+      rm -f "$_gi_tmp"
+      ok "Added .kit-baseline to the Agent Code Kit block in .gitignore"
+    fi
   else
     {
       echo ""
       echo "$MARKER"
       [ "$VERSION_OURS" = true ] && echo "VERSION"
       echo ".kit-manifest"
+      echo ".kit-baseline"
       echo "CLAUDE.md"
       echo "CLAUDE.project.md"
       echo "CODEBASE_MAP.md"
@@ -1894,6 +1940,32 @@ if [ "$GITIGNORE" = true ]; then
   fi
 fi
 
+# unregistered_hooks — the kit hooks of the installed profile that neither
+# .claude/settings.json nor settings.local.json registers, one per line. Plain shell
+# (no python3), so the warning below works on any box.
+unregistered_hooks() {
+  local kit_settings="$CLONE_DIR/.claude/settings.json" have h
+  [ "$PROFILE" = strict ] && kit_settings="$CLONE_DIR/.claude/settings.strict.json"
+  have=$(cat "$DEST/.claude/settings.json" "$DEST/.claude/settings.local.json" 2>/dev/null || true)
+  while IFS= read -r h; do
+    [ -f "$DEST/$h" ] || continue
+    [[ "$have" == *"$h"* ]] || echo "$h"
+  done < <(grep -o '\.claude/hooks/[A-Za-z0-9_./-]*\.sh' "$kit_settings" 2>/dev/null | LC_ALL=C sort -u)
+  return 0
+}
+
+if [ "$UPGRADE" != true ] && [ "$SETTINGS_KEPT" = true ]; then
+  UNREG=$(unregistered_hooks)
+  if [ -n "$UNREG" ]; then
+    echo ""
+    warn "Your .claude/settings.json was kept, and it registers none of these kit hooks ($(printf '%s\n' "$UNREG" | wc -l | tr -d ' ')):"
+    printf '%s\n' "$UNREG" | sed 's/^/       - /'
+    echo "       The kit's safety hooks and gates won't run until you add them from the kit's"
+    echo "       .claude/settings.json (a later release merges this automatically)."
+    echo "       Then run ./scripts/doctor.sh to check the wiring."
+  fi
+fi
+
 if [ "$UPGRADE" != true ] && [ "${#INIT_KEPT[@]}" -gt 0 ]; then
   echo ""
   info "Installed $INIT_INSTALLED file(s) · kept ${#INIT_KEPT[@]} existing (yours, not touched, not listed in the manifest):"
@@ -1904,6 +1976,7 @@ fi
 
 echo ""
 if [ "$UPGRADE" = true ]; then
+  move_audit_log
   echo "  Upgrade complete! (v${KIT_VERSION}, $PROFILE profile)"
   print_upgrade_summary
   echo ""
