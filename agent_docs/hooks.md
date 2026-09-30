@@ -67,7 +67,7 @@ SessionStart fires with a `source`: `startup` / `resume` / `clear` for a fresh s
 
 | Hook | File | What it does |
 |------|------|-------------|
-| **session-end** | `.claude/hooks/session-end.sh` | Appends a JSON audit line to `reports/session-audit.log` with session id, exit reason, and last quality-gate status. |
+| **session-end** | `.claude/hooks/session-end.sh` | Appends a JSON audit line to `.hook-state/session-audit.log` with session id, exit reason, and last quality-gate status. |
 | **journal-fold** | `.claude/hooks/journal-fold.sh` | Consumes `.hook-state/session-journal.md` (populated mid-session by the `/note` skill). If `[finding]` or `[decision]` entries are present, folds them into `tasks/handoff-<session-id>.md`. If only `[summary]` entries, discards. Always removes the journal so the next session starts clean. Silent when no journal exists. |
 
 ### Optional (installed but not enabled by default)
@@ -105,7 +105,7 @@ Several hooks share state through transient files at the project root. Quality-g
 | `.hook-state/tool-failures.json` | `tool-failure-observe.sh` | `session-end.sh` (scorecard) | Per-session tool-failure tally: `{schema_version, cumulative, by_tool}`. Reset by `session-start.sh`. |
 | `.hook-state/stop-failures.json` | `stop-failure-observe.sh` | `session-end.sh` (scorecard) | Per-session API-error tally: `{schema_version, count, last_error}`. Reset by `session-start.sh`. |
 | `.hook-state/session-meta.json` | `session-start.sh` | `session-end.sh` | Identity for the in-progress session: `{session_id, started_at, started_at_epoch}`. Used to compute `session_duration_seconds` and the mtime cutoff for `lessons_added` / `decisions_added`. |
-| `reports/session-audit.log` | `session-end.sh` | `/scorecard`, operator review | One JSON line per session. **schema_version 2** records contain a `metrics` object (edits, blocks_fired, quality_gate, lessons_added, decisions_added, bash_token_estimate, compactions_observed, session_duration_seconds). v1 records (just identifiers + `last_quality_gate`) remain parseable. |
+| `.hook-state/session-audit.log` | `session-end.sh` | `/scorecard`, operator review | One JSON line per session. **schema_version 2** records contain a `metrics` object (edits, blocks_fired, quality_gate, lessons_added, decisions_added, bash_token_estimate, compactions_observed, session_duration_seconds). v1 records (just identifiers + `last_quality_gate`) remain parseable. |
 
 The transient `.hook-state/*` counters are reset on every new session (`session-start.sh`) so they reflect only the current session; quality-gate results are not — they are per session already, and pruned after 7 days. The audit log is append-only across sessions — `/scorecard` aggregates over the requested window.
 

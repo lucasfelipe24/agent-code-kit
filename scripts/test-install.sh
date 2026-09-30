@@ -1461,6 +1461,26 @@ PY
 ( cd "$F2B" && bash ./scripts/doctor.sh >"$F2B/.doctor.log" 2>&1 ) && pass "a kit-written settings.json missing a hook doesn't fail doctor" \
   || { fail "doctor failed a kit-written settings.json"; grep -i 'fail\|✗' "$F2B/.doctor.log" | head -3; }
 
+# --- S12: G2 — the audit log moves out of reports/ on --upgrade -----------------
+echo "== --upgrade moves reports/session-audit.log into .hook-state/ =="
+A="$XTMP/audit-move"; fresh "$A"
+mkdir -p "$A/reports" "$A/.hook-state"
+printf '{"old":1}\n{"old":2}\n' > "$A/reports/session-audit.log"; printf 'session-audit.log\n' > "$A/reports/.gitignore"
+printf '{"new":1}\n' > "$A/.hook-state/session-audit.log"
+kit "$A" .diff.log --diff
+[[ "$(strip_log "$A/.diff.log")" == *"moves reports/session-audit.log"* ]] && pass "--diff prints the planned move" || fail "--diff says nothing about the move"
+[ -f "$A/reports/session-audit.log" ] && pass "--diff moved nothing" || fail "--diff moved the log"
+kit "$A" .up.log --upgrade && pass "--upgrade ran clean" || fail "--upgrade failed"
+[ "$(cat "$A/.hook-state/session-audit.log")" = '{"old":1}
+{"old":2}
+{"new":1}' ] && pass "old lines were put ahead of the new ones" || fail "the moved log differs: $(cat "$A/.hook-state/session-audit.log" | tr '\n' ' ')"
+[ ! -e "$A/reports" ] && pass "the kit's reports/ (log + its own .gitignore) is gone" || fail "reports/ was left: $(ls -A "$A/reports" | tr '\n' ' ')"
+A2="$XTMP/audit-own-reports"; fresh "$A2"
+mkdir -p "$A2/reports"; echo "*.pdf" > "$A2/reports/.gitignore"; echo "q3" > "$A2/reports/q3.txt"; echo '{"x":1}' > "$A2/reports/session-audit.log"
+kit "$A2" .up.log --upgrade
+[ "$(cat "$A2/reports/.gitignore")" = "*.pdf" ] && [ -f "$A2/reports/q3.txt" ] && pass "a project's own reports/ files are untouched" || fail "a project's own reports/ was changed"
+[ ! -e "$A2/reports/session-audit.log" ] && [ -f "$A2/.hook-state/session-audit.log" ] && pass "only the log moved" || fail "the log did not move"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

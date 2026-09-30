@@ -478,6 +478,10 @@ run_diff() {
       warn "$p is a symlink — --upgrade writes through it to $f (this preview worked on a copy)"
     fi
   done <<<"$(_kit_symlinks "$DEST")"
+  if [ -f "$DEST/reports/session-audit.log" ] && [ ! -L "$DEST/reports/session-audit.log" ]; then
+    echo ""
+    info "--upgrade moves reports/session-audit.log into .hook-state/session-audit.log (not counted as an update); reports/ is left alone unless the kit's own .gitignore was its only file"
+  fi
   print_attention "$DEST" "$CLONE_DIR"
 
   echo ""
@@ -990,6 +994,34 @@ baseline_write() {
     } | awk -F'\t' 'NF == 2 && !seen[$2]++' | LC_ALL=C sort -t "$(printf '\t')" -k2,2
   } > "$tmp"
   mv "$tmp" "$DEST/$BASELINE_FILE"
+}
+
+# move_audit_log — the session audit log used to live in reports/, a folder name
+# many projects use themselves. --upgrade moves it to .hook-state/ (ignored by its
+# own .gitignore): the old lines go ahead of any already in the new file, the old
+# file is deleted only if it didn't grow meanwhile, the kit's own reports/.gitignore
+# (exactly "session-audit.log") goes with it, and reports/ is removed only if that
+# leaves it empty. Not an update or an addition.
+move_audit_log() {
+  local old="$DEST/reports/session-audit.log" new="$DEST/.hook-state/session-audit.log" tmp size
+  [ -f "$old" ] && [ ! -L "$old" ] || return 0
+  mkdir -p "$DEST/.hook-state"
+  [ -f "$DEST/.hook-state/.gitignore" ] || printf '*\n!.gitignore\n' > "$DEST/.hook-state/.gitignore"
+  size=$(wc -c < "$old" | tr -d ' ')
+  tmp=$(mktemp "$DEST/.hook-state/.audit.XXXXXX") || return 0
+  { cat "$old"; [ -f "$new" ] && cat "$new"; true; } > "$tmp"
+  mv "$tmp" "$new"
+  if [ "$(wc -c < "$old" | tr -d ' ')" = "$size" ]; then
+    rm -f "$old"
+    ok "Moved reports/session-audit.log to .hook-state/session-audit.log"
+  else
+    warn "reports/session-audit.log grew during the move — left in place; its lines are also in .hook-state/session-audit.log"
+  fi
+  if [ -f "$DEST/reports/.gitignore" ] && [ "$(cat "$DEST/reports/.gitignore")" = "session-audit.log" ]; then
+    rm -f "$DEST/reports/.gitignore"
+  fi
+  rmdir "$DEST/reports" 2>/dev/null || true
+  return 0
 }
 
 # print_upgrade_summary — what --upgrade did, so a quiet log can never hide files
@@ -1944,6 +1976,7 @@ fi
 
 echo ""
 if [ "$UPGRADE" = true ]; then
+  move_audit_log
   echo "  Upgrade complete! (v${KIT_VERSION}, $PROFILE profile)"
   print_upgrade_summary
   echo ""
