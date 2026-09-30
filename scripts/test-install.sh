@@ -1221,6 +1221,50 @@ mkdir -p "$P/.claude" && printf '{"permissions":{}}\n' > "$P/.claude/settings.js
 ( cd "$P" && bash "$KIT_ROOT/uninstall.sh" --force >"$P/.uninstall.log" 2>&1 ) && pass "uninstall ran clean" || fail "uninstall errored"
 assert_file "$P/.claude/settings.json"
 
+# --- S5: a plain install into a project that already has these folders --------
+echo "== init in a brownfield project installs the kit beside the project's files =="
+BF="$XTMP/bf-init"
+mkdir -p "$BF/.claude/hooks/lib" "$BF/.claude/agents" "$BF/.claude/skills/my-skill" "$BF/.claude/skills/debug" "$BF/scripts" "$BF/agent_docs"
+echo '{"name":"bf","version":"1.0.0"}' > "$BF/package.json"
+printf '{"permissions":{"allow":[]}}\n' > "$BF/.claude/settings.json"
+echo '#!/bin/sh' > "$BF/.claude/hooks/my-hook.sh"
+echo '# mine' > "$BF/.claude/hooks/lib/common.sh"
+echo '# mine' > "$BF/.claude/agents/code-reviewer.md"
+echo '# mine' > "$BF/.claude/skills/my-skill/SKILL.md"
+echo '# mine' > "$BF/.claude/skills/debug/SKILL.md"
+echo 'echo mine' > "$BF/scripts/validate.sh"
+echo '# mine' > "$BF/agent_docs/workflow.md"
+BF_OWN=".claude/settings.json .claude/hooks/my-hook.sh .claude/hooks/lib/common.sh .claude/agents/code-reviewer.md .claude/skills/my-skill/SKILL.md .claude/skills/debug/SKILL.md scripts/validate.sh agent_docs/workflow.md"
+BF_BEFORE=$(cd "$BF" && for f in $BF_OWN; do cksum "$f"; done)
+kit "$BF" .install.log && pass "brownfield install ran clean" || { fail "brownfield install failed"; tail -6 "$BF/.install.log"; }
+BF_AFTER=$(cd "$BF" && for f in $BF_OWN; do cksum "$f"; done)
+[ "$BF_BEFORE" = "$BF_AFTER" ] && pass "the project's files are byte-identical" || fail "a project file changed"
+for f in .claude/hooks/quality-gate.sh .claude/hooks/secret-scan.sh .claude/agents/planner.md .claude/skills/review-pipeline/SKILL.md \
+         scripts/doctor.sh agent_docs/debugging.md; do
+  [ -f "$BF/$f" ] && pass "the kit's $f was installed" || fail "the kit's $f is missing"
+done
+[ -f "$BF/.claude/hooks/lib/hook-lib.sh" ] || [ -n "$(ls "$BF/.claude/hooks/lib" | grep -v '^common.sh$')" ] \
+  && pass "the kit's hooks/lib files were installed beside the project's" || fail "no kit file in hooks/lib"
+for f in $BF_OWN; do
+  grep -qxF "$f" "$BF/.kit-manifest" && fail "the manifest lists the project's $f" || pass "the manifest omits the project's $f"
+  awk -F'\t' -v p="$f" '$2 == p { f = 1 } END { exit !f }' "$BF/.kit-baseline" && fail "the record lists the project's $f" || pass "the record omits the project's $f"
+done
+grep -qxF ".claude/hooks/lib" "$BF/.kit-manifest" && pass "hooks/lib stays in the manifest" || fail "hooks/lib left the manifest"
+[ -x "$BF/.claude/hooks/quality-gate.sh" ] && pass "a kit hook is executable" || fail "a kit hook isn't executable"
+[ ! -x "$BF/.claude/hooks/my-hook.sh" ] && pass "the project's hook keeps its mode" || fail "the project's hook was made executable"
+BF_LOG=$(strip_log "$BF/.install.log")
+[[ "$BF_LOG" == *"kept"*"existing"* ]] && pass "the log says what was kept" || fail "the log doesn't say what was kept"
+# A second plain run (minimal: a full one needs a terminal, F7) changes nothing and keeps hooks/lib listed.
+BF_SNAP=$(snap "$BF" | grep -v "\.kit-manifest\|\.kit-baseline")
+kit "$BF" .install2.log --profile minimal && pass "a re-run ran clean" || fail "the re-run failed"
+BF_SNAP2=$(snap "$BF" | grep -v "\.kit-manifest\|\.kit-baseline")
+[ "$BF_SNAP" = "$BF_SNAP2" ] && pass "a re-run changes no file" || fail "a re-run changed files: $(diff <(echo "$BF_SNAP") <(echo "$BF_SNAP2") | head -4 | tr '\n' ' ')"
+grep -qxF ".claude/hooks/lib" "$BF/.kit-manifest" && pass "a re-run keeps hooks/lib in the manifest (F12)" || fail "a re-run dropped hooks/lib (F12)"
+# An edited .example survives a plain re-run.
+echo "// mine" >> "$BF/.claude/commands.json.example"
+kit "$BF" .install3.log --profile minimal
+grep -q '// mine' "$BF/.claude/commands.json.example" && pass "an edited .example survives a re-run" || fail "a re-run overwrote an edited .example"
+
 echo ""
 if [ "$FAILS" -eq 0 ]; then
   echo "install-test: ALL PASS"

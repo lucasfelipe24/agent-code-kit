@@ -517,6 +517,86 @@ copy_if_new() {
   return 1
 }
 
+# --- Plain-install helpers (a project that already has these folders) ---
+#
+# A plain install (no --upgrade) never overwrites and never skips a whole folder
+# because it exists: each kit file is placed on its own, by what the install
+# record (.kit-baseline) says about the path (ack_owner, scripts/lib/manifest.sh):
+#   absent                           → copied, recorded, listed in the manifest
+#   kit / kit-edited                 → already the kit's: listed, left as it is
+#   no-record, listed by the old
+#   manifest                         → an install from before the record: the kit's
+#   anything else                    → the project's: untouched, unlisted, reported
+# The manifest and the record then name only what the kit owns (N1).
+INIT_INSTALLED=0
+INIT_KEPT=()
+INSTALL_OURS=false
+
+# prev_manifest_lists <rel> — did the manifest the previous run left list <rel>,
+# or a folder entry that holds it (.claude/hooks/lib, a skill)?
+prev_manifest_lists() {
+  [ -f "$DEST/$MANIFEST_FILE" ] || return 1
+  awk -v p="$1" '$0 == p || index(p, $0 "/") == 1 { f = 1 } END { exit f ? 0 : 1 }' "$DEST/$MANIFEST_FILE"
+}
+
+# install_file <src> <rel> [nomanifest] — place one kit file (see above). Sets
+# INSTALL_OURS to whether the kit owns <rel> afterwards.
+install_file() {
+  local src="$1" rel="$2" st
+  INSTALL_OURS=false
+  st=$(ack_owner "$DEST" "$rel")
+  case "$st" in
+    absent)
+      mkdir -p "$(dirname "$DEST/$rel")"
+      cp "$src" "$DEST/$rel"
+      case "$rel" in *.sh) chmod +x "$DEST/$rel" 2>/dev/null || true ;; esac
+      baseline_record "$src" "$rel"
+      note_added "$DEST/$rel"
+      INIT_INSTALLED=$((INIT_INSTALLED + 1))
+      INSTALL_OURS=true
+      ;;
+    kit|kit-edited) INSTALL_OURS=true ;;
+    no-record) prev_manifest_lists "$rel" && INSTALL_OURS=true ;;
+  esac
+  if [ "$INSTALL_OURS" = true ]; then
+    [ "${3:-}" = nomanifest ] || manifest_add "$rel"
+  else
+    INIT_KEPT+=("$rel")
+  fi
+  return 0
+}
+
+# install_tree <src_dir> <rel_dir> <manifest entry> [always] — a folder of kit
+# files (a skill, hooks/lib) into a project that has the folder already. When some
+# file in it is the kit's, each kit file is placed on its own; a folder where none
+# is belongs to the project (a skill of its own named like a kit skill) and gets
+# no kit file mixed in. `always` skips that test: hooks/lib must be installed
+# whatever else sits in it (the hooks fail closed without it).
+install_tree() {
+  local src_dir="${1%/}" rel_dir="$2" entry="$3" f rel any=false st
+  if [ -d "$DEST/$rel_dir" ] && [ "${4:-}" != always ]; then
+    while IFS= read -r f; do
+      rel="$rel_dir/${f#"$src_dir"/}"
+      st=$(ack_owner "$DEST" "$rel")
+      case "$st" in
+        kit|kit-edited) any=true ;;
+        no-record) prev_manifest_lists "$rel" && any=true ;;
+      esac
+    done < <(find "$src_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
+    if [ "$any" = false ]; then
+      INIT_KEPT+=("$rel_dir/ (a folder of your own that shares the kit's name)")
+      return 0
+    fi
+  fi
+  while IFS= read -r f; do
+    install_file "$f" "$rel_dir/${f#"$src_dir"/}" nomanifest
+  done < <(find "$src_dir" -type f ! -name .DS_Store | LC_ALL=C sort)
+  # The folder entry stands for the files the kit owns in it; uninstall checks
+  # each one against the record, so the project's own files in there stay.
+  manifest_add "$entry"
+  return 0
+}
+
 # Copy new files from src_dir into dest_dir (non-recursive, never overwrites).
 # For user-owned scaffolds (tasks/): the kit seeds them once, the project owns
 # them after that. Skips project overlay files. Tracks installed files in manifest.
@@ -1155,6 +1235,21 @@ else
   info "Using generic template"
 fi
 
+# Safety hooks source their library and fail closed without it. A file of the
+# project's own where a kit library file belongs would be sourced in its place, so
+# stop before anything is written rather than install hooks that block every edit.
+if [ "$UPGRADE" != true ] && [ -d "$CLONE_DIR/.claude/hooks/lib" ] && [ -d "$DEST/.claude/hooks/lib" ]; then
+  for f in "$CLONE_DIR/.claude/hooks/lib/"*.sh; do
+    [ -f "$f" ] || continue
+    rel=".claude/hooks/lib/$(basename "$f")"
+    case "$(ack_owner "$DEST" "$rel")" in
+      absent|kit|kit-edited) ;;
+      no-record) prev_manifest_lists "$rel" || error "$rel exists and isn't the kit's — the kit's hooks would source it and fail. Rename or move it, then run the install again. Nothing was written." ;;
+      *) error "$rel exists and isn't the kit's — the kit's hooks would source it and fail. Rename or move it, then run the install again. Nothing was written." ;;
+    esac
+  done
+fi
+
 # Copy VERSION file (always, all profiles)
 cp "$CLONE_DIR/VERSION" "$DEST/VERSION"
 manifest_add "VERSION"
@@ -1163,20 +1258,27 @@ manifest_add "VERSION"
 if [ "$PROFILE" != "minimal" ]; then
 
   # Copy CLAUDE.md
-  manifest_add "CLAUDE.md"
   if [ ! -f "$DEST/CLAUDE.md" ]; then
+    manifest_add "CLAUDE.md"
     cp "$SRC_CLAUDE" "$DEST/CLAUDE.md"
     baseline_record "$SRC_CLAUDE" "CLAUDE.md"
     note_added "$DEST/CLAUDE.md"
     KIT_TEMPLATE_USED="${TEMPLATE:-generic}"
     ok "Created CLAUDE.md"
   elif [ "$UPGRADE" = true ] && [ "$CLAUDE_MD_UNKNOWN" = true ]; then
+    manifest_add "CLAUDE.md"
     :  # template unknown — left untouched, reported above
   elif [ "$UPGRADE" = true ]; then
+    manifest_add "CLAUDE.md"
     upgrade_file "$SRC_CLAUDE" "CLAUDE.md"
     KIT_TEMPLATE_USED="${TEMPLATE:-generic}"
   else
     warn "Skipped CLAUDE.md (already exists)"
+    # Listed only when the kit wrote it: the project's own CLAUDE.md is not ours.
+    case "$(ack_owner "$DEST" CLAUDE.md)" in
+      kit|kit-edited) manifest_add "CLAUDE.md" ;;
+      no-record) if prev_manifest_lists CLAUDE.md && kit_claude_md "$DEST/CLAUDE.md"; then manifest_add "CLAUDE.md"; fi ;;
+    esac
   fi
 
   # Copy CODEBASE_MAP.md
@@ -1214,11 +1316,10 @@ if [ "$PROFILE" != "minimal" ]; then
   elif [ "$UPGRADE" = true ]; then
     upgrade_dir "$CLONE_DIR/agent_docs" "$DEST/agent_docs" "*.md" "agent_docs"
   else
-    warn "Skipped agent_docs/ (already exists)"
-    for f in "$DEST/agent_docs/"*.md; do
+    for f in "$CLONE_DIR/agent_docs/"*.md; do
       [ -f "$f" ] || continue
-      local_name=$(basename "$f")
-      is_project_overlay "$local_name" || manifest_add "agent_docs/$local_name"
+      is_project_overlay "$(basename "$f")" && continue
+      install_file "$f" "agent_docs/$(basename "$f")"
     done
   fi
 
@@ -1313,10 +1414,10 @@ if [ "$PROFILE" != "minimal" ]; then
     done
     chmod +x "$DEST/scripts/"*.sh 2>/dev/null || true  # a broken link among them fails chmod
   else
-    warn "Skipped scripts/ (already exists)"
-    # Record only the kit's scripts — the project's own scripts/ isn't kit-managed.
+    # The project's own scripts/ stays; the kit's scripts go in beside it.
     for kit_script in $(user_script_names); do
-      [ -f "$DEST/scripts/$kit_script" ] && manifest_add "scripts/$kit_script"
+      [ -f "$CLONE_DIR/scripts/$kit_script" ] || continue
+      install_file "$CLONE_DIR/scripts/$kit_script" "scripts/$kit_script"
     done
   fi
 
@@ -1378,10 +1479,14 @@ elif [ "$UPGRADE" = true ]; then
   fi
   chmod +x "$DEST/.claude/hooks/"*.sh 2>/dev/null || true  # a broken link among them fails chmod
 else
-  warn "Skipped .claude/hooks/ (already exists)"
-  for f in "$DEST/.claude/hooks/"*.sh; do
-    [ -f "$f" ] && manifest_add ".claude/hooks/$(basename "$f")"
+  for f in "$CLONE_DIR/.claude/hooks/"*.sh; do
+    [ -f "$f" ] || continue
+    install_file "$f" ".claude/hooks/$(basename "$f")"
   done
+  # Safety hooks fail closed without their library, so it goes in too (F12).
+  if [ -d "$CLONE_DIR/.claude/hooks/lib" ]; then
+    install_tree "$CLONE_DIR/.claude/hooks/lib" ".claude/hooks/lib" ".claude/hooks/lib" always
+  fi
 fi
 
 # Create project hooks overlay directory
@@ -1408,9 +1513,9 @@ if [ "$PROFILE" != "minimal" ]; then
   elif [ "$UPGRADE" = true ]; then
     upgrade_dir "$CLONE_DIR/.claude/agents" "$DEST/.claude/agents" "*.md" ".claude/agents"
   else
-    warn "Skipped .claude/agents/ (already exists)"
-    for f in "$DEST/.claude/agents/"*.md; do
-      [ -f "$f" ] && manifest_add ".claude/agents/$(basename "$f")"
+    for f in "$CLONE_DIR/.claude/agents/"*.md; do
+      [ -f "$f" ] || continue
+      install_file "$f" ".claude/agents/$(basename "$f")"
     done
   fi
 
@@ -1448,11 +1553,11 @@ if [ "$PROFILE" != "minimal" ]; then
       upgrade_tree "$skill_dir" ".claude/skills/$local_name"
     done
   else
-    warn "Skipped .claude/skills/ (already exists)"
-    for skill_dir in "$DEST/.claude/skills/"*/; do
+    for skill_dir in "$CLONE_DIR/.claude/skills/"*/; do
       [ -d "$skill_dir" ] || continue
-      case "$(basename "$skill_dir")" in _*) continue ;; esac
-      manifest_add ".claude/skills/$(basename "$skill_dir")"
+      local_name=$(basename "$skill_dir")
+      case "$local_name" in _*) continue ;; esac
+      install_tree "$skill_dir" ".claude/skills/$local_name" ".claude/skills/$local_name"
     done
   fi
 
@@ -1475,14 +1580,21 @@ if [ "$PROFILE" != "minimal" ]; then
       manifest_add ".claude/extensions/README.md"
     fi
   else
-    # Existing install (not an upgrade) — keep manifest entry but don't write
-    [ -f "$DEST/.claude/extensions/README.md" ] && manifest_add ".claude/extensions/README.md"
+    [ -f "$CLONE_DIR/.claude/extensions/README.md" ] && install_file "$CLONE_DIR/.claude/extensions/README.md" ".claude/extensions/README.md"
   fi
 
 fi
 
 # Copy settings.json (hooks + permissions config)
-manifest_add ".claude/settings.json"
+if [ ! -f "$DEST/.claude/settings.json" ] || [ "$UPGRADE" = true ]; then
+  manifest_add ".claude/settings.json"
+else
+  # Listed only when the kit wrote it; the project's own settings.json is not ours.
+  case "$(ack_owner "$DEST" .claude/settings.json)" in
+    kit|kit-edited) manifest_add ".claude/settings.json" ;;
+    no-record) if prev_manifest_lists .claude/settings.json; then manifest_add ".claude/settings.json"; fi ;;
+  esac
+fi
 if [ ! -f "$DEST/.claude/settings.json" ]; then
   if [ "$PROFILE" = "strict" ]; then
     cp "$CLONE_DIR/.claude/settings.strict.json" "$DEST/.claude/settings.json"
@@ -1502,24 +1614,22 @@ fi
 
 # Copy the MCP allowlist template (mcp-gate.sh is inert until the real file exists)
 if [ -f "$CLONE_DIR/.claude/mcp-allowlist.txt.example" ]; then
-  manifest_add ".claude/mcp-allowlist.txt.example"
   if [ "$UPGRADE" = true ]; then
+    manifest_add ".claude/mcp-allowlist.txt.example"
     upgrade_file "$CLONE_DIR/.claude/mcp-allowlist.txt.example" ".claude/mcp-allowlist.txt.example"
   else
-    cp "$CLONE_DIR/.claude/mcp-allowlist.txt.example" "$DEST/.claude/mcp-allowlist.txt.example"
-    baseline_record "$CLONE_DIR/.claude/mcp-allowlist.txt.example" ".claude/mcp-allowlist.txt.example"
+    install_file "$CLONE_DIR/.claude/mcp-allowlist.txt.example" ".claude/mcp-allowlist.txt.example"
   fi
 fi
 
 # Copy the project-commands template (quality-gate / ship use it when the real
 # .claude/commands.json exists; absent → auto-detection, unchanged behavior)
 if [ -f "$CLONE_DIR/.claude/commands.json.example" ]; then
-  manifest_add ".claude/commands.json.example"
   if [ "$UPGRADE" = true ]; then
+    manifest_add ".claude/commands.json.example"
     upgrade_file "$CLONE_DIR/.claude/commands.json.example" ".claude/commands.json.example"
   else
-    cp "$CLONE_DIR/.claude/commands.json.example" "$DEST/.claude/commands.json.example"
-    baseline_record "$CLONE_DIR/.claude/commands.json.example" ".claude/commands.json.example"
+    install_file "$CLONE_DIR/.claude/commands.json.example" ".claude/commands.json.example"
   fi
 fi
 
@@ -1669,6 +1779,14 @@ if [ "$GITIGNORE" = true ]; then
   fi
 fi
 
+if [ "$UPGRADE" != true ] && [ "${#INIT_KEPT[@]}" -gt 0 ]; then
+  echo ""
+  info "Installed $INIT_INSTALLED file(s) · kept ${#INIT_KEPT[@]} existing (yours, not touched, not listed in the manifest):"
+  for f in "${INIT_KEPT[@]}"; do
+    echo "       - $f"
+  done
+fi
+
 echo ""
 if [ "$UPGRADE" = true ]; then
   echo "  Upgrade complete! (v${KIT_VERSION}, $PROFILE profile)"
@@ -1694,7 +1812,15 @@ else
   echo "  Next steps:"
   echo "  1. Fill in CODEBASE_MAP.md with your project details"
   echo "  2. Customize CLAUDE.project.md with project-specific rules"
-  echo "  3. Run ./scripts/validate.sh to check for unfilled placeholders"
+  _own_validate=false
+  for f in ${INIT_KEPT[@]+"${INIT_KEPT[@]}"}; do
+    [ "$f" = "scripts/validate.sh" ] && _own_validate=true
+  done
+  if [ "$_own_validate" = false ]; then
+    echo "  3. Run ./scripts/validate.sh to check for unfilled placeholders"
+  else
+    echo "  3. (skipped) ./scripts/validate.sh is yours, not the kit's"
+  fi
   echo "  4. Review .claude/settings.json to enable/disable hooks"
   echo "  5. Start a Claude Code session"
   if [ "$WIKI" = true ]; then
