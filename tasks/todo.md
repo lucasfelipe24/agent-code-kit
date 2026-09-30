@@ -9,581 +9,800 @@ the first one and injects it as the session's active task.
 
 ## In Progress
 
-### R1 — brownfield fixes (plan approved 2026-09-30, all recommendations)
+### R2 — kit folder and layout cut (plan approved 2026-09-30; start at PR A)
 
-Approved by the maintainer with every recommendation: Q1 = C (`#complete` line in the
-record, recorded as ADR-030 in PR B), Q2 move to `.kit-backup/`, Q3 skip + warn +
-"unknown", Q4 fail only when `settings.json` isn't the kit's, Q5 add `.kit-baseline`
-and leave `VERSION` out when it is the project's, Q6 defer to R2, Q7 hold the
-release-please PR until PR C and title PR B `feat:`. Start at S1 after this spec and
-plan are merged to `main`.
-
-Spec: `tasks/specs/2026-09-28-brownfield-install/` → R1 only; R2–R4 are not planned
-here. Status: plan written 2026-09-28, not approved, no code yet.
+Spec: `tasks/specs/2026-09-28-brownfield-install/` → R2. Answered 2026-09-30:
+Q1 = full layout (ADR-031, accepted), Q2 = python3 (ADR-032, accepted), Q3 =
+mirror the installed layout in this repo (ADR-035, accepted), Q4 = defer
+`module.conf` (ADR-034, accepted), Q5–Q10 as recommended (Q7 changed: one
+release, below). Plan and ADR-033 (migration design, accepted) approved by the
+maintainer 2026-09-30, with the recommended agent-collision sub-rules.
 
 #### Goal
 
-On a brownfield fixture — its own `.claude/settings.json`, `.claude/hooks/`,
-`.claude/agents/` (with a kit-named `code-reviewer.md`), `.claude/skills/`,
-`scripts/`, a foreign `tasks/` (Celery-style), `VERSION` and `CLAUDE.md` — the
-sequence `init` (with and without a TTY) → `--diff` → `--upgrade` →
-`uninstall --force` leaves every pre-existing project file byte-identical at every
-stage, installs, records and removes the kit's own files, and names every file it
-left alone and why. Each defect (N1, F1, F2, F4, F5, F6, F7, F9, F12, G1, G2) gets a
-regression case that fails on `main` @ `622ef95` and passes on the branch.
-`npm run check` (clean worktree), `npm test` and markdownlint pass. The
-"identical through `--upgrade`" part holds only if Q1 is answered B, C or D.
+Four checks, each a case in `scripts/test-install.sh` or the new
+`scripts/test-migrate.sh` that fails on `main` @ `239fd48` and passes on the
+release:
+
+- **Criterion 2** — brownfield fixture whose `.claude/settings.json` holds only
+  its own permissions, `env` and one hook of its own: after `init </dev/null`,
+  every hook of the profile is registered (the kit hook paths named in
+  `settings.json` ∪ `settings.local.json` ⊇ the profile's set), the project's
+  entries, permissions and `env` are unchanged as JSON and in order, and
+  `doctor` passes its wiring checks. The same after `--upgrade`.
+- **Criterion 4** — `init` → `--diff` → `--upgrade` → `uninstall --force` on the
+  brownfield fixture (plus a user `CLAUDE.project.md`,
+  `.claude/hooks/project/x.sh`, a wiki page and a project agent named
+  `code-reviewer`) leaves `snap` of the project byte-identical to the snapshot
+  taken before `init`, `settings.json` included.
+- **Criterion 5** — a v1.23.0 install (greenfield and brownfield), a `main`
+  (R1, marked record) install and a pre-baseline install (`.kit-baseline`
+  deleted) are migrated: `--diff` names exactly what `--upgrade` then does
+  (`same_counts`, moves included); every file rewritten or removed is in
+  `.kit-backup/<stamp>/` first; the project's files are byte-identical; the end
+  line reads `migrated N · carried E · yours Y · replaced R (backed up) ·
+  blocked 0 · failed 0`. Then by hand on the maintainer's 5 projects: `--diff`
+  reviewed, `--upgrade`, counts recorded.
+- **Criterion 7** — after `init` in an empty git project, the first path component
+  of every `git ls-files --others --exclude-standard` entry is in Decision 6's
+  closed list; after migrating the fixtures, no `settings*.json` command or
+  `statusLine` and no shipped kit file names a legacy kit path
+  (`scripts/check-kit-paths.sh`, new, run by CI).
+
+Plus: gates G1–G3 (Claude Code behavior) pass by hand; `npm run check` (clean
+worktree), `npm test`, markdownlint and CI on ubuntu and macOS (bash 3.2); this
+repo's own `doctor.sh` behavior checks pass after every PR.
 
 #### Context
 
-Every known install is brownfield (spec → Context). Reproduced again on this
-branch's code (identical to `main` @ `622ef95` outside `tasks/`) in a throwaway
-`/tmp` project with its own `.claude/` (settings with permissions only,
-`hooks/my-hook.sh`, `agents/code-reviewer.md`, `skills/my-skill/`),
-`scripts/deploy.sh`, `tasks/celery.py` and `VERSION` = `3.4.0`:
+R1 is merged, not released. Release PR #11 (`1.24.0`) stays open until R2 ships
+too — the maintainer cuts one release with everything — so the migrator must
+handle v1.23.0 records (unmarked, N1-widened manifests), `main` installs made
+through `curl | bash` (marked records) and records deleted by hand. All three
+tags (v1.22.4, v1.22.5, v1.23.0) write `.kit-baseline`; a pre-baseline install
+exists only synthetically.
 
-- `init` exited 0 with zero kit hooks and zero kit scripts installed; `VERSION`
-  became `1.23.0 # x-release-please-version`.
-- `.kit-manifest` listed the project's `code-reviewer.md`, `my-hook.sh`,
-  `my-skill`, `settings.json` and `VERSION`; `.kit-baseline` listed none of them.
-- `uninstall --dry-run` listed all of them, plus `tasks/` (holding `celery.py`)
-  and "will also remove empty .claude/ directory".
-- `--upgrade` replaced the project's `code-reviewer.md` with the kit's (copy in
-  `.kit-backup/`) — ADR-023 option A at work.
+Measured on `docs/r2-plan` (= `main` @ `239fd48` outside `tasks/`): 395 tracked
+files (`CHANGELOG.md` excluded).
 
-#### Current State
+What moves, in projects and in this repo (ADR-031, ADR-035):
 
-Line numbers re-verified on this branch; `install.sh`, `uninstall.sh`, `scripts/`
-and `.claude/` are byte-identical to `main` @ `622ef95`, so the spec's citations hold.
+| From | To | Files in the kit |
+|---|---|---|
+| `.kit-manifest`, `.kit-baseline` | `.claude/kit/manifest`, `.claude/kit/baseline` | 2 records (the tracked `.kit-manifest` here becomes `scaffold/kit-manifest.txt`) |
+| `VERSION` | `.claude/kit/install.conf` `version=` | 1 (this repo keeps its root `VERSION` for release-please) |
+| `agent_docs/*.md` | `.claude/kit/docs/` | 12 |
+| `scripts/<10 shipped>` | `.claude/kit/scripts/` | 10 |
+| `tasks/lessons/_TEMPLATE.md`, `tasks/handoff.md`, `.claude/*.example` | `.claude/kit/templates/` | 4 |
+| `WIKI.md`, `ARTIFACTS.md` | `.claude/kit/modules/{wiki,html}/` | 2 |
+| `.claude/agents/*.md` | `.claude/agents/kit/` | 6 + the wiki agent |
+| `.claude/hooks/*.sh` + `lib/` | `.claude/kit/hooks/` | 28 + 9 |
 
-- Ownership today is `.kit-manifest`. Skip branches add whatever exists:
-  `install.sh:1221` (agent_docs), `:1252-1259` (tasks), `:1383` (hooks), `:1413`
-  (agents), `:1455` (skills), `:1479` (extensions); unconditional adds: `:1160`
-  VERSION, `:1166` CLAUDE.md, `:1183` CODEBASE_MAP.md, `:1485` settings.json,
-  `:1529` / `:1601` module schemas, `:1570` / `:1584` module skills and agent,
-  `seed_dir` `:535`, `upgrade_dir` `:748`.
-- `.kit-baseline` (ADR-017) already records every file the installer writes into
-  shared paths (`:1212`, `:1302`, `:1352`, `:1361`, `:1403`, `:1438`, `:1468`,
-  `:1489`, `:1493`, `:1510`, `:1522`, `:1533`, `:1574`, `:1588`, `:1605`, and every
-  `upgrade_file` branch `:677-725`). Not recorded: `VERSION`, `CODEBASE_MAP.md`,
-  `CLAUDE.project.md`, `tasks/*`, `wiki/*.md`, `artifacts/*.html`. Both records are
-  written only at the end of a run (`:1631-1635`; `baseline_write` `:785-811`).
-- `init` skips whole directories: `agent_docs/` `:1216-1222`, `tasks/`
-  `:1250-1259`, `scripts/` `:1315-1320`, `.claude/hooks/` `:1380-1384` (and never
-  lists `lib/` — F12), `.claude/agents/` `:1410-1414`, `.claude/skills/`
-  `:1450-1456`; an existing `settings.json` only gets "Skipped" (`:1497-1501`).
-  `.example` templates are copied unconditionally on a plain run (`:1509`, `:1521`);
-  `VERSION` is `cp`'d unconditionally (`:1159`). No TTY: `:1035-1038` errors — and on
-  Linux `/dev/tty` exists without a controlling terminal, so CI reaches the `read`
-  and dies there instead. The `--gitignore` block (`:1638-1670`) lacks
-  `.kit-baseline` and is skipped whole when its marker exists (`:1643-1644`).
-  `copy_if_new` (`:509-518`) is defined and unused.
-- `--upgrade`: `upgrade_file` (`:677-725`) backs up and replaces an unrecorded file
-  (ADR-023 A); `scripts/test-install.sh:663-684` asserts exactly that, and
-  `:809-826` guards against the freeze that option B caused. `run_diff`
-  (`:333-474`) previews by running the upgrade on a scratch copy; `:358` shows the
-  project's `VERSION` as "Installed".
-- `uninstall.sh` runs standalone (`curl | bash`) and does not source `scripts/lib/`
-  (`scripts/lib/manifest.sh:15-19`). It trusts the manifest through the backstop
-  (`:425-443`); `kit_wrote` (`:120-123`) checks presence in the record, not the hash
-  (F9); it removes `VERSION` unconditionally (`:211`), `tasks/` with `rm -rf`
-  (`:310`, `:627`) after a warning (F4), `settings.json` unconditionally (`:389`);
-  its `.claude/`-empty message (`:513-552`) ignores `settings.local.json` (`:530`).
-  `kit_leftover` (`:170-176`) is already the hash rule, for unlisted paths only.
-- `scripts/doctor.sh` ships standalone into projects (`KIT_USER_SCRIPTS`,
-  `scripts/lib/manifest.sh:38`), so it can't source `scripts/lib/` either. An
-  unregistered hook is a warning (`:365`); only the quality-gate / stop-gate wiring
-  fails (`:379`, `:384`).
-- G2: `.claude/hooks/session-end.sh:27-32` writes `reports/session-audit.log` and
-  creates `reports/.gitignore` only when missing. Readers and mentions:
-  `.claude/skills/scorecard/SKILL.md:3,38,47,128` (no `.tmpl` behind it),
-  `bench/scenarios/s15-session-end-writes-audit-line.json:11`,
-  `bench/README.md:39,209`, `agent_docs/hooks.md:70,108`,
-  `CODEBASE_MAP.md:122,165,245,286` (→ `AGENTS.md`), ADR-007
-  (`tasks/decisions.md:158`). No hook deletes `.hook-state/` wholesale
-  (`session-start.sh:85,87` remove two markers); the `*` self-ignore is
-  `lib/state-counter.sh:26`.
-- Tests: `scripts/test-install.sh` (948 lines; helpers `kit` / `fresh` / `snap`
-  `:600-611`). Its own-files case adds them only after install (`:495-543`), which
-  is why N1 was never caught. KitBench already supports `file_absent` and
-  `file_contains`. CI runs the install test on ubuntu and macOS (bash 3.2).
+References to those paths, by what has to change:
 
-#### Approach
+| Where | Files | Lines |
+|---|---|---|
+| All tracked files | 259 of 395 | 1286 |
+| KitBench (`bench/scenarios/` + `bench/README.md`) | 159 — every one of the 158 scenarios | 310 (295 `"hook"` fields) |
+| `test-install.sh` + `test-cli.sh` | 2 | 179 |
+| `install.sh`, `uninstall.sh`, `bin/` | 3 | 101 |
+| 8 `CLAUDE.md` templates | 8 | 117 |
+| Skills (core + wiki) | 23 | 68 |
+| Kit docs (`agent_docs/`) | 6 | 48 |
+| `README.md` + pt-BR | 2 | 20 |
+| `tasks/` (history — not rewritten) | 14 | — |
 
-One rule: facts first, policy second. A classifier reports facts about a path;
-each operation applies Decision 4 to those facts.
+- Hook command sites: `settings.json` 25 commands in 8 events,
+  `settings.strict.json` 30 in 9, all `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<n>.sh`;
+  each install carries 25 or 30, plus whatever the project put in
+  `settings.local.json`. Permissions: 23 allow, 13 deny (never merged).
+- Skills and docs citing hook, agent or template paths: 22 files, 89 lines
+  (`agent_docs/hooks.md` 33, `CLAUDE.md` 7, each example `CLAUDE.md` 3,
+  `CODEBASE_MAP.md` 7, `mcp-audit` 3, `review-pipeline`, `note`,
+  `lesson-refresh`, `subagents.md`, `skills.md`, READMEs 2 each). 9 hooks name
+  a hook or template path in a message.
+- Code that lists agents non-recursively: `convert.sh:46`, `gen-skill-docs.sh:28`,
+  `check-counts.sh:48`, `doctor.sh:528-533`, `capabilities/SKILL.md:42`,
+  `lib/manifest.sh:101-106`, `install.sh:1652-1670`, `:1843-1854`,
+  `uninstall.sh:121`, `:503`, `:919`.
+- Hooks find `lib/` through `$(dirname "$0")/lib` (26 of 28), so they move as a
+  folder; `skill-compliance.sh:32-35` derives the skills folder from its own
+  (breaks), `scripts/note.sh:40-44` sources `.claude/hooks/lib/redact-secrets.sh`,
+  `doctor.sh:64,67,270-272,673` hard-code `.claude/hooks/`.
+- Only 3 of 37 skills are built from `.tmpl`; the `## Kit Context` block cites no
+  moving path. Path edits in skills are hand edits plus a CI residue check.
+- This repo reads as a legacy install today (tracked `.kit-manifest`, local
+  git-excluded `.kit-baseline` and wiki module). Without a refusal, an
+  `--upgrade --local .` here after R2 would migrate its tracked tree.
 
-Classifier — `ack_owner <dest> <rel>` in `scripts/lib/manifest.sh`, one word:
+#### R1 facts this plan builds on
 
-| State | Meaning |
-|---|---|
-| `absent` | nothing at `<rel>`, not even a link |
-| `kit` | `.kit-baseline` records `<rel>` and the file still has that hash |
-| `kit-edited` | recorded, but the file changed since |
-| `unverified` | recorded, but it can't be hashed (no sha256 tool, unreadable, dangling link) |
-| `unrecorded` | the record has file entries, none for `<rel>` |
-| `no-record` | no `.kit-baseline`, or one with no file entry (ADR-023's definition) |
+- Ownership block `# >>> ack-ownership` … `# <<< ack-ownership` in
+  `scripts/lib/manifest.sh:134-205`, copied byte for byte into
+  `uninstall.sh:141-212` and `scripts/doctor.sh:176-247`
+  (`test-install.sh:1125-1131` fails on drift). States: `absent`, `kit`,
+  `kit-edited`, `unverified`, `unrecorded`, `no-record`; plus
+  `ack_record_complete` (ADR-030) and `ack_prior_install`. Every function
+  hard-codes `$1/.kit-baseline`.
+- `install.sh`: `owner_of` `:571-576`, `install_file` `:598-621`,
+  `install_tree` `:676-689`, `upgrade_file` `:848-901`, `backup_file`
+  `:777-785`, `replace_file` `:791-809` (writes through links), `baseline_write`
+  `:963-997`, the EXIT trap's partial record `:1060-1067`, `run_diff`
+  `:346-499` (copy list `:388-429`; `_plan_compare` `:264-295` reports only add /
+  update / conflict), F2 warning `:1946-1967`.
+- `uninstall.sh` removes by record (`may_remove` `:284-303`, backstop
+  `:520-586`) and still removes overlays (`:379-395`), `wiki/` + `raw-sources/`
+  (`:465-466`) and `artifacts/` (`:489`) whole after a warning.
 
-Plus `ack_record_complete <dest>` (a `#complete` header; only if Q1 = C) and
-`ack_prior_install <dest>` (`.kit-manifest` or `.kit-baseline` exists, or
-`CLAUDE.md` carries `## Session Boot`). Hash order sha256sum → shasum → python3
-(as `install.sh:564-572`); CR stripped from record lines; bash 3.2, no associative
-arrays, `LC_ALL=C`. The block sits between `# >>> ack-ownership` and
-`# <<< ack-ownership` markers and is copied verbatim into `uninstall.sh` and
-`scripts/doctor.sh`, which both run standalone; `test-install.sh` fails when the
-three copies differ (same pattern as its `package.json` vs `KIT_USER_SCRIPTS`
-check, `:90-92`).
+#### Decisions
 
-Policy — the preservation matrix the 2026-09-28 lesson asks for:
+Answered (2026-09-30): Q1 ADR-031 = B (full layout); Q2 ADR-032 = A (python3,
+hook entries and strict `ACK_*` env only, never permissions); Q3 ADR-035 = A
+(mirror); Q4 ADR-034 = B (defer `module.conf`, reverses shape.md Decision 12);
+Q5 `install.conf` (`layout`, `version`, `profile`, `modules`); Q6 rewrite known
+kit paths in a kit-written `CLAUDE.md` the user edited, after a backup; Q7 one
+release — #11 stays open until R2 ships; Q8 `fetch-depth: 0` for the install
+job; Q9 uninstall supports both layouts; Q10 project files calling kit scripts
+are reported, never rewritten.
 
-| State | plain `init` | `--upgrade` | `uninstall` |
-|---|---|---|---|
-| `absent` | copy, record, list in manifest | copy, record, list (added) | — |
-| `kit` | leave, list | update against the record (ADR-017), list | remove |
-| `kit-edited` | leave, list | kept or `.kit-new` (ADR-017), list | keep, report "edited since install" |
-| `unverified` | leave, list | as today (no hash tool: stops before any change) | keep, report "can't verify" |
-| `unrecorded`, record marked complete | skip, report, not listed | skip, report "yours", not listed (Q1) | keep, report "not installed by the kit" |
-| `unrecorded`, record not marked | skip, report, not listed | ADR-023 A: back up, replace, record | keep, report |
-| `no-record`, prior install | skip, report; record not marked | ADR-023 A; record marked after the run | ADR-023 fallback (Q2) |
-| `no-record`, first install | skip, report; record marked | same as `init` | — |
+Open:
 
-`VERSION` reads `kit-edited` as "the project's" (never a `.kit-new` at the root) and
-has one legacy rule (S8). A skill directory and `.claude/hooks/lib/` are
-all-or-nothing: if any file in an existing one is not the kit's, the kit writes
-nothing into it.
+- **ADR-033** (migration design) — accepted 2026-09-30.
+- **Agent name collisions** — ADR-031 records the default the coordinator asked
+  for (the project's agent wins; the kit's isn't installed; reported). Confirm
+  the two sub-rules: a project file with no `name:` counts by its stem, and a
+  collision that appears after install removes the kit's untouched copy on
+  `--upgrade` (with a backup).
+- **After G3** — if a running session keeps its start-up hooks, confirm the
+  two-run removal of legacy hooks (S23).
 
 #### Steps
 
-Three PRs, in order, each branched from an up-to-date `main` (squash-only,
-ADR-002). Every merge to `main` is live for `curl | bash` users at once
-(`install.sh` clones `main`, `uninstall.sh` is fetched from it), so each PR must be
-safe on its own.
+Seven PRs, in order, each from an up-to-date `main`, squash-only (ADR-002).
+Every merge is live for `curl | bash` users, so each PR leaves the kit working on
+its own, and the migrator's map grows with each flip PR: an install upgraded
+between two of them is migrated for the rows that exist, and the next
+`--upgrade` moves the rest (state is per row, ADR-033). Release PR #11 stays open
+until PR D4 merges.
 
-- **PR A** `fix/r1-uninstall-ownership` — S0–S4. The classifier, tested on the
-  uninstall path first (spec risk C1). Only makes uninstall more conservative.
-- **PR B** `feat/r1-install-per-file` — S5–S8. The rule applied to `init` and
-  `--upgrade` (F5, F6, F12, N1 install side, F1) plus ADR-030. Carries Q1.
-- **PR C** `fix/r1-brownfield-surface` — S9–S12. Small independent fixes: F7, G1,
-  F2, G2. G2 can split out if the reviewer prefers.
+| PR | Branch | Steps | Risk | Closes |
+|---|---|---|---|---|
+| A | `fix/r2-uninstall-keeps-user-data` | S1–S2 | low: uninstall only keeps more | part of 4 |
+| B | `feat/r2-settings-merge` | S3–S7 | medium: writes the project's `settings.json` | 2 |
+| C | `feat/r2-migrator` | S8–S12 | none at runtime: not wired | tested migrator |
+| D1 | `feat/r2-layout-records` | S13–S16 | medium: first wired migration, 3 files | records out of the root |
+| D2 | `feat/r2-layout-agents` | S17–S18 | medium: 7 files, name collisions | `.claude/agents/` the project's |
+| D3 | `feat/r2-layout-docs-scripts` | S19–S21 | high by size: 60 % of the content edits | 7 |
+| D4 | `feat/r2-layout-hooks` | S22–S24 | highest: every hook command, this repo's own gates | `.claude/hooks/` the project's; 5 |
 
-Why three: A and B each carry one ownership risk and get their own
-`/review-pipeline` + `devils-advocate` pass; C bundles low-risk fixes that would
-dilute B's review. Each step is one commit on its branch, test first.
+Why this split: the spec's single "layout" PR can't be thinned by type of file,
+because in a mirrored repo a category's source move, its installer flip, its
+migrator rows and its reference edits must land together (this repo's
+`settings.json` and `CLAUDE.md` are the shipped ones). So the flip is cut by
+category, smallest and safest first: D1 wires the migrator into the real
+installer on 3 bookkeeping files; D2 adds one rule (names) on 7 files; D3 is the
+bulk of the text; D4 carries the settings rewrite and the safety hooks last,
+behind gates G2–G3. C stays dark, so the migrator is tested on fixtures before
+any flip. B can be built in parallel with C.
 
-##### S0 — Baseline the suite (no commit)
+Gates (by hand, exact commands in `RELEASING.md` from D2 on; results recorded
+with `/verification-status`):
 
-- Cut the branch from `main` (after the spec PR merges — see Dependencies). In a
-  clean `git worktree`, run `npm run check`, `npm test` and markdownlint; record the
-  pass counts with `/verification-status`.
+- **G1 — agents in a subfolder** (before PR D2 merges). In
+  `P=$(mktemp -d)`, `git init`, then write `.claude/agents/kit/ack-probe.md`:
+  frontmatter `name: ack-probe`, `description: Probe agent for the kit's layout
+  test.`, body `Whatever you are asked, reply with exactly: ACK-PROBE-7431`.
+  Run `cd "$P" && claude -p --agent ack-probe "What is your codeword?"` and
+  `cd "$P" && claude -p "Use the ack-probe subagent and print exactly what it
+  replies."`. Pass: both outputs contain `ACK-PROBE-7431`. Fail: stop D2 and
+  re-plan (agents stay flat, ADR-031 amended).
+- **G2 — hooks under `.claude/kit/hooks/`** (before PR D4 merges). In a scratch
+  git project, install the D4 branch
+  (`bash <kit>/install.sh --local <kit> </dev/null`), then
+  `claude -p --permission-mode acceptEdits "Create src/app.py whose only line is:
+  def broken(:"`. Pass: `.hook-state/last_quality_gate.json` has
+  `"status": "failed"` and `.hook-state/` holds the session-start state, i.e.
+  PostToolUse and SessionStart ran from `.claude/kit/hooks/`. Then
+  `claude -p "Run: git push origin HEAD:main"` in the same project with a
+  `main` branch checked out: pass when the transcript shows branch-protect's
+  BLOCKED message.
+- **G3 — a running session while hooks move** (before PR D4 merges). Install
+  v1.23.0 into a scratch project; start `claude` there interactively and make one
+  edit; in another terminal run the D4 branch's `install.sh --local <kit>
+  --upgrade`; back in the session make another edit and run `/hooks`. Record
+  which paths `/hooks` lists and whether the second edit updated
+  `.hook-state/quality-gate-state.json`. Outcome A (the session follows the
+  rewritten settings): no extra step. Outcome B (it keeps start-up paths): S23's
+  two-run removal and restart notice apply.
+- Informational (no gate): the same `name` in `.claude/agents/x.md` and
+  `.claude/agents/kit/x.md` with different codewords, run 5 times — shows why the
+  collision rule never leaves both; a `settings.json` with a `//` line — does
+  Claude Code load it? (the merge never writes one either way).
 
-##### S1 — Classifier and fixtures (PR A)
+Per-PR gate (every PR, before merge, in a clean `git worktree`):
 
-- Files: `scripts/lib/manifest.sh` (block + header comment), `uninstall.sh` and
-  `scripts/doctor.sh` (verbatim copy, not called yet), `scripts/test-install.sh`
-  (new `== ownership classifier ==` section).
-- Fails first (red on `main`: function undefined): a table-driven case calls
-  `ack_owner` on crafted projects for every state, plus a record holding only
-  `#template` (→ `no-record`), `#` lines never matching a path, a CRLF record, a
-  symlink and a dangling one, the no-hash PATH shim (`:763-773`), a kit-named
-  project file (`.claude/agents/code-reviewer.md`) under a real install's record
-  (→ `unrecorded`), and the same install with `.kit-baseline` removed
-  (→ `no-record`). Plus the byte-identical block check.
-- Premise check, written without the classifier so it runs on `main` too — expected
-  green; if red, stop and re-plan: after fresh `standard`, `strict`, `minimal` and
-  `--wiki --html` installs, every file under `agent_docs/*.md`, `scripts/`,
-  `.claude/hooks/`, `.claude/agents/`, `.claude/skills/`,
-  `.claude/extensions/README.md`, `.claude/*.example`, `settings.json`, `WIKI.md`
-  and `ARTIFACTS.md` has a record entry. That is Decision 4's premise and the guard
-  against the freeze ADR-023 measured.
-- Verify: `bash scripts/test-install.sh`.
-- Rollback: `git revert` the commit (nothing calls the block yet).
+1. Brownfield round trip on the R1 smoke fixture plus a project
+   `.claude/agents/code-reviewer.md` and `.claude/agents/review/code-reviewer.md`
+   (both `name: code-reviewer`): `init </dev/null` → `--diff` → `--upgrade` →
+   `uninstall --force`, `git status --porcelain` after each; nothing `M` that the
+   step doesn't own.
+2. Upgrade of a v1.23.0 install AND a pre-baseline install through the PR's code,
+   `same_counts` between `--diff` and `--upgrade`, backup listed.
+3. This repo: `bash .claude/kit/scripts/doctor.sh` (from D3 on; `scripts/doctor.sh`
+   before) passes its behavior checks; the refusal fires on
+   `install.sh --local . --upgrade`.
+4. `/review-pipeline` + the `devils-advocate` agent; findings fixed or logged
+   under Not Now with a reason.
+5. `(processed / failed / skipped)` recorded with `/verification-status`.
 
-##### S2 — Uninstall: N1, F9, settings.json (PR A)
+R1 lessons that bind every step:
 
-- Files: `uninstall.sh` (detection `:116-208`, root files `:210-226`, `:388-391`,
-  backstop `:393-443`, listing `:456-511`, `.claude/` emptiness `:513-552`, removal
-  `:605-696`), `scripts/test-install.sh`, `README.md` + `README.pt-BR.md`
-  (`:390-392`).
-- Change: every candidate — manifest entries expanded to files, record entries,
-  files under the shared dirs — goes through `ack_owner`. Only `kit` is removed,
-  plus the `.kit-new*` copies beside a manifest entry and the bookkeeping files.
-  `kit-edited`, `unverified` and `unrecorded` are kept and listed by reason.
-  `CLAUDE.md` and `settings.json` follow the same rule; a kept `kit-edited`
-  `settings.json` gets a warning naming the kit hook registrations that will point
-  at removed scripts. Directories go only when empty; `.claude/` counts
-  `settings.local.json` and every kept file. `kit_wrote`, `kit_leftover` and
-  `manifest_covers` fold into the classifier. End line:
-  `removed N · kept M (edited E, yours Y, unverified U)`.
-- Fails first (red on `main`): brownfield fixture, then the manifest widened as
-  v1.23.0 wrote it (as `:700-702` does) → `--dry-run` lists none of the project's
-  files for removal and doesn't announce removing `.claude/`; `--force` leaves them
-  byte-identical (`snap` before install equals after uninstall) and no kit file
-  behind. The kit `CLAUDE.md` edited after install is kept (F9). The kit
-  `settings.json` edited → kept with the warning; untouched → removed.
-  `test-install.sh:476-488`, `:495-543` and `test-cli.sh:136-148` stay green.
+- Every removal or overwrite goes through the classifier; never a path list or
+  the manifest alone.
+- Back up before any rewrite or removal (one stamp per run); new files as temp +
+  `mv`.
+- Report `processed / failed / skipped` with reasons.
+- `--diff` must equal `--upgrade`: whatever a decision reads must be in the
+  scratch copy (`install.sh:388-429`); what's read outside it (Q10's `git grep`)
+  is read-only and printed by both.
+- bash 3.2: no associative arrays, `mapfile`, `${x,,}`; empty arrays as
+  `${a[@]+"${a[@]}"}` under `set -u`. Under `pipefail` an early-exiting reader
+  (`grep -q`, `grep -m1`, `head`) fails the pipeline — capture whole output or
+  use a herestring. CI's Pipefail Grep Guard (`validate.yml:207-237`) rejects
+  `| grep -q` in any `pipefail` script.
+- Prove red: every fails-first case runs against `main`'s scripts in a scratch
+  dir.
+
+##### S0 — Baseline (no commit)
+
+- Cut each branch from `main`. In a clean worktree run `npm run check`,
+  `npm test`, markdownlint; record the counts with `/verification-status`.
+
+##### S1 — Uninstall keeps the project's overlays (PR A)
+
+- Files: `uninstall.sh:379-395`, `:754-759`, `--help` `:70`; `bin/cli.sh:43`;
+  `scripts/test-install.sh`; `README.md` + `README.pt-BR.md` uninstall section.
+- Change: `CLAUDE.project.md` goes only when byte-identical to the kit's copy
+  (`same_as_kit`, `:223-225`; without the kit tree it stays).
+  `agent_docs/project/` and `.claude/hooks/project/` go only when empty.
+  `--keep-project` stays accepted, now a no-op.
+- Fails first (red on `main`): an edited `CLAUDE.project.md`,
+  `.claude/hooks/project/x.sh` and `agent_docs/project/mission.md` survive
+  `uninstall --force` byte-identical; the pristine template goes.
 - Verify: `bash scripts/test-install.sh && bash scripts/test-cli.sh`.
-- Rollback: revert; uninstall goes back to trusting the manifest.
+- Rollback: revert.
 
-##### S3 — Uninstall: F4 tasks/ (PR A)
+##### S2 — Uninstall keeps module data (PR A)
 
-- Files: `uninstall.sh:258-312`, `:467-478`, `:556-561`, `:615-632`; tests;
-  README `:390` + pt-BR.
-- Change: never `rm -rf tasks/`. A file under `tasks/` goes only if `kit` or — for
-  installs from before S6 records the scaffold — byte-identical to the kit's
-  `scaffold/` copy when the kit tree is at hand (`same_as_kit`, `:151-153`); empty
-  dirs then go bottom-up. Without the kit tree (`curl | bash`) an unrecorded
-  scaffold file stays and is listed. `--keep-tasks` still keeps everything. The
-  "(contains your data!)" warning becomes the kept list.
-- Fails first (red on `main`, which runs `rm -rf`): `tasks/celery.py` beside the
-  scaffold → `--force` keeps `celery.py` and `tasks/`, removes the pristine
-  scaffold files, keeps an edited `todo.md`.
+- Files: `uninstall.sh:433-491`, `:604-620`, `:741-752`; tests.
+- Change: `wiki/` and `raw-sources/` are never removed whole: `wiki/index.md` /
+  `wiki/log.md` go only while byte-identical to what `create_wiki_index` /
+  `create_wiki_log` write (`install.sh:66-88`; uninstall carries the two
+  strings), then empty dirs bottom-up. `artifacts/index.html` and
+  `design-system.html` go only while identical to `html-module/templates/`.
+  Everything else stays and is listed.
+- Fails first (red on `main`, which runs `rm -rf`): a wiki page, a raw source and
+  an artifact survive; untouched seeds go.
+- Verify: `bash scripts/test-install.sh`. Rollback: revert.
+- PR A gate.
+
+##### S3 — Settings engine: merge, strip, rewrite (PR B)
+
+- Files: new block `# >>> ack-settings` … `# <<< ack-settings` (python3 heredoc
+  function `ack_settings`) in `install.sh` after `kit_attention_report`
+  (`:127-208`), copied byte for byte into `uninstall.sh`; `test-install.sh`
+  (byte-identity check, as `:1125-1131`).
+- Change: bash supplies facts, python applies policy:
+  `ack_settings <mode> <file> <kit_settings> <kit_hooks> <records>`, where
+  `<kit_hooks>` lists the hook paths the classifier calls the kit's. Modes:
+  - `plan` — TSV, writes nothing.
+  - `merge` — per kit hook of the profile: absent from `settings.json` and
+    `settings.local.json` → a new group with the kit's matcher, appended to the
+    event; equal to its `#hook` record → the kit's current entry; different →
+    kept, "edited"; no record → kept, recorded only if equal to the kit's; stale
+    and equal to its record → removed. Strict `ACK_*` `env` keys added only
+    when absent.
+  - `strip` — remove exactly the kit's entries.
+  - `rewrite <old>=<new>…` — in the kit's entries only (command names a path in
+    `<kit_hooks>`), replace the path, keep every other field; a `statusLine`
+    command naming the kit's `scripts/statusline.sh` likewise. Entries under
+    `.claude/hooks/project/`, or naming a file the record calls the project's,
+    are never touched.
+  Never touched: other entries, key order, `permissions`, other keys. Output keeps
+  indent (2, 4 or tab, detected), non-ASCII and the final newline; no change → no
+  write; a symlinked file is written through; not strict JSON → no write, `plan`
+  says `manual`.
+- Record: `#hook<TAB><event><TAB><path><TAB><sha256 of canonical {matcher, hook}>`
+  header lines, regenerated by `baseline_write` (`:973-986`).
+- Fails first (the function doesn't exist on `main`): golden cases — empty hooks;
+  an own hook in the same event; a kit hook registered only in
+  `settings.local.json` (not added); an edited kit entry (merge keeps it; rewrite
+  changes only its path); a stale kit entry; a project hook named like a kit hook
+  and one under `hooks/project/` (untouched by every mode); a relative legacy
+  command `.claude/hooks/x.sh` (rewritten in place); `statusLine`
+  `./scripts/statusline.sh` (rewritten only when the script is the kit's);
+  4-space and tab indent round trip; a JSONC comment (no write, `manual`); a
+  symlinked file; `rewrite` run twice (second run writes nothing); `strip` of a
+  `merge` equal to the input bytes.
+- Verify: `bash scripts/test-install.sh`. Rollback: revert (nothing calls it).
+
+##### S4 — `init` merges into a project's `settings.json` (PR B)
+
+- Files: `install.sh:1738-1763`, `:1957-1967` (the R1 warning becomes the
+  no-python3 path), `:1997-2013`; tests; README `:420` area.
+- Change: `settings.json` present and not the kit's → `backup_file`, `merge`,
+  report `registered N kit hooks · kept M of yours`. The file stays unrecorded;
+  only `#hook` lines are recorded. Without a usable python3
+  (`.claude/hooks/lib/python3.sh`'s probe): the R1 warning, exit 0, doctor
+  fails.
+- Fails first (red on `main`): the criterion-2 check; under the PATH shim
+  (`test-install.sh:950-970` pattern, without python3) the warning is still
+  printed; a greenfield install is unchanged.
 - Verify: `bash scripts/test-install.sh`. Rollback: revert.
 
-##### S4 — Uninstall with no record at all (PR A, needs Q2)
+##### S5 — `--upgrade` and `--diff` keep registrations current (PR B)
 
-- Files: `uninstall.sh`, tests.
-- Change (Q2 = A): with `no-record` and a prior install, each existing
-  manifest-listed file moves to `.kit-backup/<UTC stamp>/` (a link is moved as a
-  link, never followed), is listed, and is counted in the end line; `CLAUDE.md` only
-  when it carries `## Session Boot` (ADR-023's rule). With Q2 = B: stop before
-  removing anything and point at `install.sh --upgrade`.
-- Fails first (red on `main`): record deleted, manifest widened, one symlinked
-  skill → nothing is deleted outright; every listed file is under `.kit-backup/`;
-  the link target is untouched.
-- Verify: `bash scripts/test-install.sh`. Rollback: revert.
-- PR A gate: `/review-pipeline` + `devils-advocate` on the classifier and S2–S4.
-
-##### S5 — Init: per-file copy in the skip branches (PR B)
-
-- Files: `install.sh` — skip branches `:1216-1222`, `:1315-1320`, `:1380-1384`,
-  `:1410-1414`, `:1450-1456`, `:1477-1480`; `.example` copies `:1503-1524`; manifest
-  gating at `:535`, `:748`, `:1160`, `:1166`, `:1183`, `:1485`, `:1529`, `:1570`,
-  `:1584`, `:1601`; `chmod +x` only on files the run wrote (`:1304`, `:1364`); a
-  pre-flight for `.claude/hooks/lib/` after the kit source is ready (`:1076`, before
-  the first write at `:1159`); the init summary; the next-steps line `:1697`.
-- Change: `copy_if_new` becomes `install_file <src> <rel>` and applies the `init`
-  column: `absent` → copy, `baseline_record`, `manifest_add`; kit states →
-  `manifest_add` only; anything else → reported as the project's. Skills: a missing
-  kit skill dir is copied whole; an existing one only per file when at least one
-  file in it is the kit's, otherwise the whole skill is the project's. `hooks/lib`:
-  a lib file that exists and isn't the kit's stops the run before anything is
-  written (hooks would source a foreign lib and fail closed); otherwise per file,
-  and `.claude/hooks/lib` is listed again (F12). `manifest_add` only for what the
-  kit owns after the run (N1). A plain re-run no longer overwrites an edited
-  `.example` (closes that Not Now item). The end prints
-  `installed N · kept M existing files (yours)` and lists the kept ones;
-  `./scripts/validate.sh` is recommended only when it's the kit's. A kit hook name
-  the project already uses gets a warning when the kit's `settings.json` registers it.
-- Fails first (red on `main`): brownfield fixture → every kit hook, `lib/` file,
-  script, agent, skill and `agent_docs/` file installed and recorded; the project's
-  files byte-identical (`snap`), in neither manifest nor record; a plain re-run
-  keeps `.claude/hooks/lib` in the manifest (F12); an edited
-  `.claude/commands.json.example` survives a re-run; a project skill named like a
-  kit skill gets no kit file mixed in; a foreign file in `hooks/lib/` stops the run
-  with nothing written. `:137-165` stays green.
-- Verify: `bash scripts/test-install.sh`.
-- Rollback: revert; the skip branches go back to skipping whole directories.
-
-##### S6 — Init: F6 tasks/ (PR B)
-
-- Files: `install.sh:1231-1286`, `seed_dir` `:520-547`; tests.
-- Change: `tasks/` is kit-shaped when empty or holding any scaffold top-level name
-  (`todo.md`, `decisions.md`, `handoff.md`, `lessons/`). Kit-shaped → seed the
-  missing scaffold files with `install_file` semantics; foreign (e.g. only
-  `celery.py`) → seed nothing and say the task board wasn't installed (a
-  configurable path is deferred — spec → Open Questions). Every scaffold file the
-  kit writes is now recorded, so S3 verifies it by hash without the kit tree;
-  `seed_dir` and the lessons loop (`:1276-1285`) list only what the kit owns.
-- Fails first (red on `main`): kit-shaped `tasks/` with only the project's
-  `todo.md` → `decisions.md`, `handoff.md` and `lessons/` appear, `todo.md` is
-  identical and reported; a foreign `tasks/` is untouched.
+- Files: `install.sh:1758-1759`, `run_diff` copy list `:409`
+  (+ `settings.local.json`), `:496`, `print_attention` `:214-258`; tests
+  `:418-476`.
+- Change: `--upgrade` runs `merge` on a kit-edited or unrecorded `settings.json`
+  (an untouched kit file keeps whole-file `upgrade_file`). `--diff` shows the
+  per-entry plan from the scratch run.
+- Fails first (red on `main`): a v1.23.0 brownfield install gains the missing
+  hooks on `--upgrade`, named first by `--diff` (`same_counts`); an edited kit
+  entry is kept and reported.
 - Verify: `bash scripts/test-install.sh`. Rollback: revert.
 
-##### S7 — Upgrade: unrecorded files and the complete record (PR B, needs Q1; ADR-030)
+##### S6 — Uninstall strips the kit's entries (PR B)
 
-- Files: `install.sh` — `upgrade_file` `:677-725`; `manifest_add` after the
-  decision in `upgrade_dir` `:737-752`, skills `:1441-1449`, modules `:1566-1592`;
-  `baseline_write` `:785-811` (emits `#complete`); summary `:813-837`; `run_diff`
-  `:428-472` (parses the new section, appends the count); the EXIT trap
-  `:839-848` (flushes a partial, unmarked record when a real run fails);
-  `tasks/decisions.md` (ADR-030 + amendment notes on ADR-017 and ADR-023); tests;
-  README `:377-381` + pt-BR.
-- Change (Q1 = C): `unrecorded` under a record marked `#complete` → kept, not
-  listed, reported "yours — the kit's version isn't installed"; unmarked or no
-  record → ADR-023 A unchanged. `#complete` is written by a run that leaves every
-  kit path recorded or known to be the project's — a first install, any
-  `--upgrade`, an `init` over a marked record — never by a plain run over an
-  unmarked or missing record. `--upgrade` with no prior install follows the `init`
-  column. The summary appends `· N yours` at the end, so the field positions
-  `upgrade_counts` / `preview_counts` parse still hold.
-- Fails first (red on `main`): brownfield `init` → `--upgrade` keeps
-  `code-reviewer.md` byte-identical and `--diff` says the same (`same_counts`).
-  `:663-684` becomes two cases — marked record: the project's `scripts/validate.sh`
-  is kept; `#complete` stripped: replaced with a backup (ADR-023 coverage stays).
-  `:809-826` and `:828-840` stay unchanged and green. A first install interrupted
-  after the hooks copy (a regular file planted at `.claude/agents`) leaves an
-  unmarked partial record, and the next `--upgrade` completes it with no `.kit-new`.
-- Verify: `bash scripts/test-install.sh`.
-- Rollback: revert. Older installers ignore `#complete` (every reader skips `#`
-  lines and their `baseline_write` drops it), so a record degrades to ADR-023 A.
-
-##### S8 — F1 VERSION (PR B, needs Q3)
-
-- Files: `install.sh:1158-1160`, `:358`, `:1649`; `uninstall.sh` root files; tests.
-- Change: `VERSION` goes through the classifier. `absent` → write, record (new),
-  list. `kit` → write the kit's copy (as today), record. `kit-edited`,
-  `unrecorded`, or present at a first install → the project's: untouched, not
-  listed, warning "VERSION is your project's — the kit's version isn't recorded
-  here until R2"; `--diff` shows "Installed: unknown". Legacy rule (no install
-  before R1 ever recorded `VERSION`): unrecorded + listed in the manifest + content
-  `<semver> # x-release-please-version` → the kit's. Uninstall removes only `kit`.
-  The `--gitignore` block leaves `VERSION` out when it's the project's (Q5).
-- Fails first (red on `main`): the project's `VERSION` 3.4.0 byte-identical after
-  `init`, `--upgrade` and `uninstall`; a greenfield `VERSION` recorded, then
-  removed; a pre-R1 install (fingerprinted, unrecorded) updated, then recorded.
-- Verify: `bash scripts/test-install.sh`. Rollback: revert.
-- PR B gate: the brownfield round trip (Verification) and `/review-pipeline` +
-  `devils-advocate`.
-
-##### S9 — F7 no TTY (PR C)
-
-- Files: `install.sh:1019-1045`; tests; README `:288` + pt-BR.
-- Change: a TTY means `/dev/tty` can be opened (`{ : </dev/tty; } 2>/dev/null`),
-  not that it exists. Without one: an info line "No terminal — continuing:
-  existing files are kept, never overwritten", and the run goes on; S5's end report
-  lists what was kept. With one: the prompt is unchanged.
-- Fails first (red on `main`, exit 1): an existing `CLAUDE.md`, the run detached
-  from any controlling terminal with
-  `python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' bash install.sh …`
-  (Linux and macOS) → exit 0, kit installed, `CLAUDE.md` identical, the log names
-  it. Without python3 the case reports itself skipped, never passed.
+- Files: `uninstall.sh:507-509`, `:698-704`, `:731-738`, `:870-877`; tests.
+- Change: a `settings.json` that isn't the kit's loses exactly the entries whose
+  hook this run removes (`strip`), after a backup; without python3 the R1
+  warning stays and names the entries.
+- Fails first (red on `main`): the criterion-4 round trip with a merged 2-space
+  `settings.json` is byte-identical after uninstall.
 - Verify: `bash scripts/test-install.sh`. Rollback: revert.
 
-##### S10 — G1 gitignore (PR C, Q5)
+##### S7 — Doctor and docs (PR B)
 
-- Files: `install.sh:1637-1670`; tests.
-- Change: the block gains `.kit-baseline`. A `--gitignore` run over an existing
-  block that lacks it inserts the line after the marker, once (temp + `mv`).
-- Fails first (red on `main`): a new block holds `.kit-baseline`; an old block
-  gains it exactly once over two runs.
+- Files: `scripts/doctor.sh:427-453` ("run install.sh --upgrade to register
+  them"); `agent_docs/hooks.md`; `README.md` + pt-BR `:374-382`;
+  `CODEBASE_MAP.md:299-302`; ADR-021 and ADR-017 amendment notes.
+- Verify: `bash scripts/test-install.sh`, markdownlint. Rollback: revert.
+- PR B gate.
+
+##### S8 — The record can live in either layout (PR C)
+
+- Files: ownership block `scripts/lib/manifest.sh:134-205`, re-copied into
+  `uninstall.sh` and `doctor.sh`; tests `:1121-1196`.
+- Change: `ack_record_file <dest>` → `.claude/kit/baseline` if present, else
+  `.kit-baseline`; `ack_record_hash` looks in the new record first, then the
+  legacy one. `ack_layout <dest> <map>` → `none` · `legacy` · `partial` (any
+  legacy map row still on disk beside a new record) · `2`. `ack_prior_install`
+  also accepts `.claude/kit/manifest`. New `ack_agent_name <file>` (frontmatter
+  `name:`, CR and quotes stripped, else the stem) — in the block because install,
+  uninstall and doctor all need it.
+- Fails first: each layout state on crafted trees; names from quoted, CRLF and
+  missing `name:` files; every R1 classifier case stays green unchanged.
 - Verify: `bash scripts/test-install.sh`. Rollback: revert.
 
-##### S11 — F2 settings warning and doctor failure (PR C, Q4)
+##### S9 — Path map (PR C)
 
-- Files: `install.sh:1484-1501` (warning) and the final message `:1691-1717`;
-  `scripts/doctor.sh:330-368`; tests.
-- Change: a kept `settings.json` that doesn't register the installed profile's kit
-  hooks prints a loud block — count, list, "the kit's safety hooks and gates won't
-  run until you add them from the kit's `.claude/settings.json` (R2 merges this
-  automatically)", then "run ./scripts/doctor.sh". It reuses
-  `kit_attention_report`'s `unregistered` lines (`:153-177`), with a grep fallback
-  without python3. Exit stays 0. Doctor (Q4 = B) reads `settings.json` and
-  `settings.local.json` (as `_doctor_gate_wiring` already does) and fails when
-  `settings.json` isn't the kit's (`unrecorded` / `no-record`) and a non-opt-in kit
-  hook (`kit` / `kit-edited`) is registered in neither; everything else stays a
-  warning.
-- Fails first (red on `main`): the brownfield `init` log carries the warning, also
-  under the no-python3 shim; doctor there exits 1 naming the hooks; greenfield
-  doctor still passes (`:202-207`); a kit-written `settings.json` with one hook
-  removed warns without failing.
+- Files: new `scripts/lib/layout.sh` (sourced by `install.sh` only; joins
+  `package.json` `files` in D1); tests.
+- Change: `ack_layout_map <kit_dir> [category…]` prints `category<TAB>legacy<TAB>new`
+  rows, derived from the kit tree, never hand-listed: `records`, `version`
+  (`VERSION` → `install.conf`), `agents` (each kit agent, wiki's included),
+  `docs` (`agent_docs/<f>.md`, never `project/`), `scripts` (each
+  `KIT_USER_SCRIPTS` entry), `templates` (4), `modules` (2 schemas), `hooks`
+  (each `*.sh` and `lib/*.sh`). The installer passes only the categories its
+  release has flipped, so the map grows PR by PR (D1 → D4).
+- Fails first: the full map lists every file a fresh v1.23.0 standard `--wiki
+  --html` install put under a moving path (premise check, as R1 S1), and nothing
+  else.
+- Verify: `bash scripts/test-migrate.sh`. Rollback: revert.
+
+##### S10 — Fixtures (PR C)
+
+- Files: new `scripts/test-migrate.sh` (helpers as `test-install.sh:620-626`,
+  `:737-755`); `package.json` `scripts` (`test:migrate`, in `npm test`) and
+  `.github/workflows/validate.yml:119` `fetch-depth: 0` (both protected, Q8).
+- Change: fixtures built per run:
+  - (a) v1.23.0 standard, greenfield, from `git worktree add <tmp> v1.23.0`;
+    (b) v1.23.0 on the brownfield fixture (N1-widened manifest); (c) (a) and (b)
+    with `.kit-baseline` deleted; (d) a `main` install (marked record); (e) wiki +
+    html modules; (f) an edited kit doc, script, hook and agent;
+  - (g) the project's own `scripts/validate.sh` under a marked record;
+  - (h) agents: a project `.claude/agents/code-reviewer.md` (`name:
+    code-reviewer`), and separately one at `.claude/agents/review/code-reviewer.md`,
+    and one with no `name:` whose stem is `planner`;
+  - (i) settings: kit entries edited (matcher, timeout), a project hook named
+    `secret-scan.sh` the record calls the project's, a `hooks/project/` entry,
+    kit hooks registered in `settings.local.json`, a `statusLine` on
+    `./scripts/statusline.sh`, a `settings.json` with a `//` comment;
+  - (j) a copy of this repo's tracked tree (`git archive HEAD`).
+  No tag → "skipped (no v1.23.0 tag)", counted, never passed.
+- Verify: `bash scripts/test-migrate.sh`. Rollback: revert.
+
+##### S11 — Planner (PR C)
+
+- Files: `scripts/lib/layout.sh`; `scripts/test-migrate.sh`.
+- Change: `ack_migration_plan <dest> <kit_dir> <categories>` — reads only —
+  one row per map row: `move`, `carry`, `replace`, `yours`, `done`, `resume`,
+  `blocked <reason>`, `refuse <reason>` (ADR-033). Rules beyond the classifier:
+  - templates move only while byte-identical to a kit copy (never recorded
+    before R1); otherwise `yours`;
+  - agents: a kit agent whose `ack_agent_name` a non-kit file under
+    `.claude/agents/` (any depth) already declares → `yours` ("the kit's version
+    isn't installed"), and its legacy kit copy, if any, is backed up and removed
+    rather than moved — never both;
+  - hooks rows are `blocked` when python3 is unusable or either settings file
+    fails `ack_settings plan` (not strict JSON) — the legacy hooks stay;
+  - `refuse` for a kit source tree (`install.sh`, `uninstall.sh`,
+    `scaffold/tasks/todo.md`, `bench/scenarios/` all present, or the target is
+    the source) and for a layout newer than the running kit.
+- Fails first: exact expected rows for fixtures (a)–(j); (h) → `yours` for
+  `code-reviewer` and `planner`; (i) comment file → hooks `blocked`; (j) →
+  `refuse`.
+- Verify: `bash scripts/test-migrate.sh`. Rollback: revert.
+
+##### S12 — Executor (PR C)
+
+- Files: `scripts/lib/layout.sh`; `scripts/test-migrate.sh`.
+- Change: `ack_migrate_apply` runs the plan in phases, each safe to repeat:
+  1. back up every origin, both records, `VERSION` (if the kit's), both settings
+     files and `.gitignore` into one `.kit-backup/<stamp>/`; a failed copy stops
+     before anything moves;
+  2. copy each `move` / `carry` / `replace` (temp + `mv`), verify its sha;
+  3. write the new records (carried hashes; mark per ADR-030) and `install.conf`;
+  4. rewrite executable references with S3's `rewrite` (hook commands in both
+     settings files, `statusLine`) and the `--gitignore` block
+     (`install.sh:1900-1941` format);
+  5. remove each verified origin, then empty legacy dirs, then the legacy records.
+  Report: `migrated N · carried E · yours Y · replaced R (backed up) · blocked K ·
+  failed F`.
+- Fails first: for each fixture, the final tree equals the expected one; a run
+  cut after each phase (a destination made unwritable, then restored) and re-run
+  equals an uncut run (`snap`); project files byte-identical; every removed or
+  rewritten file is in the backup; a second run on a migrated tree writes nothing.
+- Verify: `bash scripts/test-migrate.sh && bash scripts/test-install.sh`.
+- Rollback: revert (nothing calls it).
+- PR C gate — `devils-advocate` on S11–S12 first.
+
+##### S13 — This repo stops looking like an install (PR D1)
+
+- Files: `git mv .kit-manifest scaffold/kit-manifest.txt`;
+  `scripts/sync-manifest.sh`, `lib/manifest.sh` `MANIFEST_FILE` users,
+  `validate.yml:148-151`, `CODEBASE_MAP.md`; the refusal (S11's test) in
+  `install.sh` (before any mode, including `--diff`), `uninstall.sh` (before
+  detection); `.git/info/exclude` note for the maintainer: delete the local
+  `.kit-baseline` after this PR merges.
+- Fails first: fixture (j) through `install.sh`, `--upgrade`, `--diff` and
+  `uninstall.sh` → each exits non-zero with the refusal and writes nothing
+  (`snap`).
+- Verify: `npm run check`, `bash scripts/test-install.sh`. Rollback: revert.
+
+##### S14 — Records and version under `.claude/kit/` (PR D1)
+
+- Files: `install.sh:26,31`, `:1308-1311`, `:1415-1427` (the project's `VERSION`
+  is never read or written again), `:1894-1897`, `:1916-1938` (`--gitignore`:
+  `.claude/kit/` for these entries); `package.json` `files`
+  (+ `scripts/lib/layout.sh`, protected); tests.
+- Change: fresh installs write `.claude/kit/{manifest,baseline,install.conf}`;
+  `--upgrade` runs `ack_migrate_apply` for `records version` after the layout
+  check (`:1390-1391`); guards: a `--version` older than this release over a
+  layout-2 or partial install → refuse; no hash tool → stop.
+- Fails first (red on `main`): no `VERSION`, `.kit-manifest`, `.kit-baseline` at
+  the root after `init`; fixtures (a)–(d) migrated for these rows with
+  `same_counts`.
+- Verify: `bash scripts/test-install.sh && bash scripts/test-migrate.sh`.
+- Rollback: revert; installs migrated meanwhile keep their records under
+  `.claude/kit/` (a reverted installer reads them as no prior install — Risks).
+
+##### S15 — `--diff` previews moves (PR D1)
+
+- Files: `run_diff` `:388-429` (copy `.claude/kit`, `.claude/agents/kit`,
+  `settings.local.json`, `.gitignore`), `_plan_compare` `:264-295` (`move` and
+  `remove` rows; bookkeeping `:269` gains the new records),
+  `print_upgrade_summary` `:1029-1058` (`· N moved` appended, fields kept for
+  `upgrade_counts`, `test-install.sh:753`), the Q10 report; tests.
+- Fails first: `same_counts` with moves on fixtures (a)–(d).
 - Verify: `bash scripts/test-install.sh`. Rollback: revert.
 
-##### S12 — G2 audit log (PR C)
+##### S16 — Uninstall, doctor, CLI, session-start in both layouts (PR D1)
 
-- Files: `.claude/hooks/session-end.sh:5,27-32`;
-  `.claude/skills/scorecard/SKILL.md:3,38,47,128`;
-  `bench/scenarios/s15-session-end-writes-audit-line.json:11`; new
-  `bench/scenarios/s163-session-end-leaves-project-reports-alone.json`;
-  `install.sh` (`--upgrade` move, `--diff` line); `scripts/check-counts.sh:29`
-  (157 → 158); `README.md` + `README.pt-BR.md` `:453`, `:466`;
-  `bench/README.md:39,209` + an s163 row; `agent_docs/hooks.md:70,108`;
-  `CODEBASE_MAP.md:122,165,245,286`, then regenerate `AGENTS.md`; an ADR-007
-  amendment note.
-- Change: the log goes to `.hook-state/session-audit.log`; the hook creates
-  `.hook-state/.gitignore` (`*`, `!.gitignore`) when missing and never touches
-  `reports/`. `--upgrade` appends an existing `reports/session-audit.log` ahead of
-  any lines already in the new file, deletes the old one only if its size didn't
-  change meanwhile, deletes `reports/.gitignore` only when its content is exactly
-  the kit's `session-audit.log`, and removes `reports/` if that leaves it empty;
-  `--diff` prints the planned move. Neither counts as an update or an addition. The
-  scorecard's empty-log message names both paths.
-- Fails first (red on `main`): s15 expects `.hook-state/session-audit.log` to grow
-  and `reports/session-audit.log` absent; s163 plants a project
-  `reports/.gitignore` and expects it unchanged with no log beside it;
-  `test-install.sh` moves a planted log on `--upgrade` with its content preserved.
-- Verify: `npm run bench`, `bash scripts/test-install.sh`,
-  `bash scripts/check-counts.sh` (clean worktree), `bash scripts/validate-skills.sh`.
-- Rollback: revert; logs already moved stay readable where they are.
+- Files: `uninstall.sh:100-113`, `:348-366`; `scripts/doctor.sh:155-159` and a
+  layout check (`legacy` / `partial` → fail "run install.sh --upgrade (--diff
+  first)"); `bin/cli.sh:132-135` (version from `install.conf` in a project);
+  `.claude/hooks/session-start.sh` (one line when `partial`: two `[ -f ]`
+  tests); new bench scenario, `check-counts.sh:30` (158 → 159); tests.
+- Fails first: criterion 4 on a layout-2 install and on a v1.23.0 install (Q9);
+  doctor fails on (a) and on a half-migrated tree, passes after `--upgrade`.
+- Verify: `npm test`. Rollback: revert.
+- PR D1 gate.
 
-#### Files to Touch
+##### S17 — Agents move in this repo and the tooling that lists them (PR D2, after G1)
 
-- `scripts/lib/manifest.sh` — the ownership block (source of truth).
-- `uninstall.sh` — synced block; removal by ownership (S2–S4, S8).
-- `install.sh` — per-file init, tasks, upgrade rule, VERSION, TTY, gitignore,
-  settings warning, log move (S5–S12).
-- `scripts/doctor.sh` — synced block; the F2 failure (S11).
-- `scripts/test-install.sh` — every regression case and the round trip.
-- `.claude/hooks/session-end.sh`, `.claude/skills/scorecard/SKILL.md`,
-  `bench/scenarios/s15-…`, new `bench/scenarios/s163-…`, `bench/README.md`,
-  `scripts/check-counts.sh` — G2.
-- `README.md`, `README.pt-BR.md` — install, upgrade and uninstall behavior; bench count.
-- `agent_docs/hooks.md`, `CODEBASE_MAP.md`, `AGENTS.md` (regenerated) — G2 path.
-- `tasks/decisions.md` — ADR-030, plus amendment notes on ADR-017, ADR-023, ADR-007.
+- Files: `git mv .claude/agents/*.md .claude/agents/kit/`,
+  `wiki-module/.claude/agents/wiki-maintainer.md` stays (payload);
+  recursive listing in `convert.sh:46`, `gen-skill-docs.sh:28`,
+  `check-counts.sh:48`, `doctor.sh:528-533`, `capabilities/SKILL.md:42`,
+  `lib/manifest.sh:101-106`; `package.json` `files` `:41`; docs
+  (`subagents.md:131`, `CODEBASE_MAP.md`, READMEs); `RELEASING.md` (G1).
+- Fails first: `check-counts.sh` counts 6 agents under `.claude/agents/kit/`;
+  `convert.sh` exports the same 6.
+- Verify: `npm run check`, `bash scripts/test-cli.sh`. Rollback: revert.
+
+##### S18 — Installer places agents by name (PR D2)
+
+- Files: `install.sh:1652-1670`, `:1843-1854`; `uninstall.sh:121`, `:503`,
+  `:919`; doctor's duplicate-name check; the map's `agents` category passed to
+  the migrator; tests (`:826-833`, `:1272-1316` brownfield cases move to the new
+  path).
+- Change: before placing a kit agent, collect `ack_agent_name` of every non-kit
+  `.md` under `.claude/agents/`; a taken name → not installed, not recorded,
+  reported "yours — the kit's version isn't installed". `--upgrade`: a collision
+  that appeared after install → the kit's copy, if `kit`, is backed up and
+  removed; if `kit-edited`, kept and reported. Doctor fails on any `name`
+  declared twice under `.claude/agents/`.
+- Fails first: fixtures (h) — `init`, `--upgrade`, `--diff` and migration never
+  leave two files with one name; the kit's other agents are under `kit/`; doctor
+  fails on a hand-made duplicate.
+- Verify: `bash scripts/test-install.sh && bash scripts/test-migrate.sh`.
+- Rollback: revert.
+- PR D2 gate, G1 recorded.
+
+##### S19 — Docs, scripts, templates and module schemas move in this repo (PR D3)
+
+- Files: one commit: `git mv` of `agent_docs/*.md` (12) →
+  `.claude/kit/docs/`, the 10 shipped scripts → `.claude/kit/scripts/`, the 4
+  templates → `.claude/kit/templates/` (`lesson.md`, `handoff.md`,
+  `commands.json.example`, `mcp-allowlist.txt.example`; this repo's
+  `tasks/lessons/_TEMPLATE.md` and `tasks/handoff.md` deleted), `WIKI.md` /
+  `ARTIFACTS.md` → `.claude/kit/modules/…`; with it `package.json` `files`
+  `:40,:50-60,:66-67`, `validate.yml:109,124,139` chmod lines,
+  `check-scaffold.sh:61-66`, `gen-agents-md.sh:169`, `sync-manifest.sh`,
+  `test-install.sh` / `test-cli.sh` paths, bench s17, s18, s49, s50, and this
+  repo's own `CLAUDE.md` (it is the template: S21).
+- Fails first: `npm run check` + `npm test` on the moved tree; every path the
+  generic `CLAUDE.md` cites resolves here (new check in `sync-manifest.sh
+  --check`).
+- Verify: `npm run check && npm test`. Rollback: revert.
+
+##### S20 — Installer and migrator for those categories (PR D3)
+
+- Files: `install.sh:1433-1505`, `:1507-1537` (no templates seeded into
+  `tasks/`), `:1547-1592`, `:1765-1784` (`.example` → templates), `:1787-1873`
+  (schemas), `:1997-2031`; `bin/cli.sh:64-122` (run `.claude/kit/scripts/…`; a
+  legacy install gets the upgrade message); `uninstall.sh:121`, `:270-276`,
+  `:919-923`; doctor `:165`, `:286-295`, `:540-541`, `:595-661`; tests.
+- Change: the map gains `docs scripts templates modules`; the migrator's phase 4
+  rewrites a `statusLine` on the kit's `scripts/statusline.sh`; a kit-written
+  `CLAUDE.md` the user edited gets the literal map after a backup (Q6); Q10
+  report; `agent_docs/project/` no longer created.
+- Fails first (red on `main`): the criterion-7 check; the R1 round trip on the
+  new layout; criterion 5 for these rows on (a)–(g).
+- Verify: `bash scripts/test-install.sh && bash scripts/test-migrate.sh &&
+  bash scripts/test-cli.sh`. Rollback: revert.
+
+##### S21 — Content paths and the residue check (PR D3)
+
+- Files: 8 `CLAUDE.md` templates (117 lines), 23 skill files (68 lines, 3
+  `agent_docs/project/` lines kept), 6 kit docs (48), relative links in
+  `deepening-review/references/*.md`, hook messages (`bash-budget.sh:147`,
+  `read-budget.sh:102`, `lib/redact-secrets.sh:8`), `.claude/extensions/README.md`,
+  `scaffold/tasks/`; READMEs (20 lines), `CODEBASE_MAP.md`, `AGENTS.md`
+  (regenerated), `CONTRIBUTING.md`; new `scripts/check-kit-paths.sh`, run by
+  `sync-manifest.sh --check`.
+- Change: one scripted rewrite by the map, then hand review; the check fails on a
+  legacy kit path in any shipped file, with an allowlist (`agent_docs/project/`,
+  the project's `VERSION` in `ship`, the migrator's map, `CHANGELOG.md`,
+  `tasks/`).
+- Fails first: the check fails on `main`'s tree and passes after the rewrite.
+- Verify: `npm run check`, `bash scripts/validate-skills.sh`, markdownlint.
+  Rollback: revert.
+- PR D3 gate — criterion 7 closes here.
+
+##### S22 — Hooks move in this repo (PR D4)
+
+- Files: one commit, made from a terminal with no Claude Code session open in
+  this repo: `git mv .claude/hooks/*.sh .claude/hooks/lib .claude/kit/hooks/`
+  (`.claude/hooks/project/` stays); `.claude/settings.json` (25 commands),
+  `scripts/gen-strict-settings.sh` → `settings.strict.json` (30); all 158
+  scenarios (`"hook"` fields and setup paths: 310 lines by `sed`, s44 included);
+  `bench/README.md`; `validate.yml:109,124,139`; `package.json` `files`
+  `:43`; `skill-compliance.sh:32-35` (skills from `$CLAUDE_PROJECT_DIR` or
+  `${SCRIPT_DIR%/kit/hooks}/skills`); `scripts/note.sh:44`
+  (`.claude/kit/scripts/note.sh` after D3); the 4 hooks' BLOCKED messages and
+  the other 5 hooks' path mentions; `test-install.sh` / `test-cli.sh` paths;
+  docs (`agent_docs/hooks.md` 33 lines, `CODEBASE_MAP.md`, READMEs, skills
+  `mcp-audit`, `note`, `lesson-refresh`, `scorecard`, `doc-gardening`,
+  `capabilities`).
+- Fails first: `npm run bench` 159/159 on the moved tree; doctor's behavior
+  checks pass on this repo; `gen-strict-settings.sh --check`.
+- Verify: `npm run check && npm test`; open a new Claude Code session here and
+  make one edit — the quality gate records it.
+- Rollback: revert (then restart sessions here).
+
+##### S23 — Installer and migrator for hooks (PR D4, after G2 and G3)
+
+- Files: `install.sh:1398-1411` (lib pre-flight on the new path), `:1597-1646`,
+  `:1946-1955`, `kit_attention_report` `:133,159`, `_kit_symlinks` `:311`;
+  `uninstall.sh:121`, `:495-504`, `:919`; doctor `:64,67`, `:270-272`,
+  `:326-343`, `:407-456`, `:673`; tests.
+- Change: the map gains `hooks`; phase 4 runs S3's `rewrite` on `settings.json`
+  and `settings.local.json`; blocked rows keep the legacy hooks registered and
+  make doctor fail with the reason. G3 outcome B: phase 5 leaves legacy hook
+  files in place while `.hook-state/` shows a session started after the backup
+  stamp, and says "restart Claude Code sessions in this project, then run
+  --upgrade again"; the next run removes them.
+- Fails first (red on `main`): fixtures (a)–(i) end with every kit command under
+  `.claude/kit/hooks/` in both settings files, project entries byte-equal, edited
+  kit entries keeping their edits, a second run writing nothing; the JSONC
+  fixture `blocked` with hooks still at `.claude/hooks/` and registered.
+- Verify: `bash scripts/test-migrate.sh && bash scripts/test-install.sh &&
+  npm run bench`. Rollback: revert.
+
+##### S24 — Release notes and the maintainer run (PR D4)
+
+- Files: `README.md` + pt-BR, `RELEASING.md` (G1–G3 as release smokes, plus R3's
+  D2 later), ADR-033 status; amendment notes on ADR-017, ADR-021, ADR-023.
+- Change: the hard cut stated — `--diff`, then `--upgrade`; legacy doctor and
+  scripts refused afterwards; restore from `.kit-backup/<stamp>/`.
+- PR D4 gate; G2, G3 recorded; then `--diff` + `--upgrade` on the maintainer's
+  5 projects, counts recorded; then the maintainer releases (#11 → R1 + R2).
+
+#### Size
+
+7 PRs, 24 steps plus S0 and 3 manual gates. PR D3 and D4 are each larger than
+all of R1: D3 moves 28 files and edits the 8 templates, 23 skills, 6 docs and
+both READMEs; D4 moves 37 files and edits all 158 bench scenarios, both settings
+files and ~25 other files. In total about 259 tracked files change (1286 lines
+name a moved path), plus the new migrator, merge engine and two test suites.
 
 #### Protected changes and repo obligations
 
-- No Protected Change as `protect-changes.sh` defines them: no dependency manifest,
-  workflow, migration, auth path or build config. That holds only because the
-  classifier lives in `scripts/lib/manifest.sh`. A new `scripts/lib/ownership.sh`
-  would have to join `package.json` `files` (`:50` names `manifest.sh`, or `npx`
-  installs can't source it) — protected — plus a `CODEBASE_MAP.md` entry and an
-  `AGENTS.md` regeneration.
-- Not protected, still needs approval: S7 reverses ADR-023's option A for records
-  marked complete, so ADR-030 is recorded before PR B merges. `.kit-baseline` gains
-  a header line (backward compatible — S7 rollback).
-- `sync-manifest.sh --check`: unaffected (`kit_manifest_entries` unchanged, no new
-  shipped script). `check-scaffold.sh`: unaffected (no `scaffold/` change).
-  `check-counts.sh`: 157 → 158 in PR C, with the README phrases CONTRIBUTING.md:48
-  requires. `gen-agents-md.sh`: rerun after the `CODEBASE_MAP.md` edits
-  (`check:agents-md`). `validate.sh CODEBASE_MAP.md` must still pass.
-  `validate-skills.sh` covers the scorecard edit.
-- The local wiki module (git-excluded) makes `check:manifest` and `check-counts.sh`
-  drift in this checkout — not to be fixed; run the checks in a clean worktree.
+- ADR-031, ADR-032, ADR-033, ADR-034, ADR-035 accepted.
+  `package.json` (`files`, `scripts`) and `.github/workflows/validate.yml` trip
+  `protect-changes.sh`: `CLAUDE_APPROVED=1` after the ADR.
+- `sync-manifest.sh --check`, `check-scaffold.sh`, `check-counts.sh` (159 from
+  D1), `gen-agents-md.sh` + `check:agents-md`, `gen-strict-settings.sh --check`,
+  `validate-skills.sh`, `check-prefix-residue.sh`, `check-kit-paths.sh` pass in a
+  clean worktree (the local wiki module drifts them here — don't fix it).
 
 #### Dependencies
 
-- No new packages. Tools already required: bash (3.2-compatible), awk, a sha256
-  tool; python3 optional, as today.
-- Merge `docs/brownfield-install-spec` (spec + this plan) into `main` first, so
-  PR A's branch carries both.
-- PR B needs Q1; S4 needs Q2; S8 needs Q3; S11 needs Q4; S8 and S10 need Q5.
-  S0–S3, S9 and S12 need no answer.
+- No new packages: bash 3.2, awk, a sha256 tool, git; python3 for merge,
+  rewrite and `--diff`, as today.
+- PR C before D1; D1 before D2–D4; G1 before D2 merges;
+  G2 and G3 before D4 merges. B in parallel with C.
 
 #### Risks
 
-- Blocking: Q1. Without an answer, PR B either keeps "the first `--upgrade`
-  replaces the project's file" (A — criterion 5 fails) or brings back the freeze
-  ADR-023 measured (B). C is the recommendation, D the narrow alternative.
-- Stop condition: if the S1 premise check fails, "absent from the record = the
-  project's" is false for this installer; stop and re-plan before S2.
-- The block copied into three files can drift; the byte-identical test catches it,
-  but every fix is made in `manifest.sh` and copied.
-- `curl | bash` reads `main`: each PR is live when it merges, before any release.
-- Pre-R1 brownfield installs: the project's files already listed in the manifest
-  are replaced, with a backup, on their first R1 `--upgrade` (unmarked record),
-  exactly as today; only a complete record protects them from then on. Release
-  notes: run `--diff` first and check `.kit-backup/`.
-- A `VERSION` the kit overwrote before R1 can't be restored by the kit. Release
-  note: restore it from git; the kit then leaves it alone.
+- **Migrator misclassification — highest for users.** A wrong `move` takes a
+  project file away from where its tools expect it. Mitigation: facts from the R1
+  classifier only; backup first; `--diff` first; fixtures (a)–(j) in CI;
+  `devils-advocate` on S11–S12.
+- **The hooks move in this repo — highest for the maintainer.** D4 rewrites the
+  paths of the safety hooks this repo develops under; a missed reference is a
+  hook "not found", a non-blocking error, so gates go quiet. Mitigation: the move
+  in one commit outside a session, doctor's behavior checks and a fresh-session
+  edit in the D4 gate, G2.
+- **Settings rewrite on projects.** Every kit hook command in two files changes;
+  a running session may keep old paths (G3). Mitigation: owner-based rewrite,
+  backup, idempotent, `blocked` instead of a guess, the two-run removal if G3
+  says so.
+- **Agent name collisions.** Two files with one `name` load unpredictably.
+  Mitigation: the project's wins, the kit's is never installed beside it, doctor
+  fails on duplicates.
+- **Size.** 259 files over 4 flip PRs; review fatigue is the practical risk.
+  Mitigation: scripted rewrites (reviewable as one `sed` + map), residue check,
+  per-category PRs.
+- **Hard cut outside the maintainer's control.** Legacy scripts, a project's CI
+  calling `./scripts/validate.sh`, a `statusLine` in user-level settings.
+  Mitigation: rewrite what the kit owns, report the rest, doctor/CLI messages,
+  release notes.
+- **Revert after a flip PR** can't un-migrate installs. Mitigation: forward-fix;
+  backups; #11 held until D4's gate.
+- **Settings formatting.** Byte identity only for formats the writer reproduces;
+  others are reported as reformatted.
 
 #### Failure Modes
 
-- Classifier, record with CRLF endings (a teammate on Windows with
-  `core.autocrlf`) → every lookup misses → all `unrecorded` → uninstall keeps kit
-  files; under `#complete`, upgrade freezes them. Mitigation: strip `\r` on read;
-  S1 CRLF case.
-- Record marked complete, but a future write site forgets `baseline_record` → that
-  kit file reads as the project's and is never updated (ADR-023's freeze).
-  Mitigation: the S1 premise check runs every profile and module and fails on the
-  missing entry.
-- First install interrupted (Ctrl-C, disk full) after copying files → records are
-  written only at the end, so a re-run sees unrecorded kit files as the project's.
-  Mitigation: the EXIT trap flushes a partial, unmarked record (S7); the next
-  `--upgrade` completes it.
-- Per-file hooks: the project has its own `.claude/hooks/secret-scan.sh` and no
-  `settings.json` → the kit's `settings.json` registers that name and runs the
-  project's script. Mitigation: S5 warning; doctor's behavior checks.
-- A foreign `hooks/lib/json-parse.sh` → kit hooks source it and fail closed on every
-  Edit and Bash. Mitigation: the S5 pre-flight stops before any write.
-- Uninstall keeps a `kit-edited` `settings.json` → it registers removed kit hooks,
-  so each matching event shows a hook error. Mitigation: the S2 warning lists them;
-  R2's merge removes them properly.
-- Uninstall fallback on a symlinked `.claude/skills/<x>` → following the link would
-  empty a shared dotfiles dir. Mitigation: move the link itself (S4 case).
-- Doctor F2 with the kit hooks registered only in `settings.local.json` → a false
-  failure. Mitigation: read both files (S11).
-- F7 in a container with a pseudo-TTY but no stdin attached → `/dev/tty` opens and
-  the prompt blocks. Known limit; `--upgrade` still skips the prompt.
-- G2 move while another session ends → a line lands in the old file after the
-  append. Mitigation: delete the old file only if its size is unchanged; else keep
-  it and report.
+- Planner, a CRLF record → misses → `yours` → nothing moves. Mitigation: `\r`
+  stripped (R1); a CRLF fixture.
+- Executor, disk full between phases 2 and 5 → both copies exist. Mitigation:
+  `partial`, doctor and session-start say "resume"; a re-run finishes.
+- Executor, the user edits a moved file between a cut run and the re-run.
+  Mitigation: `resume` verifies against the origin; a mismatch is `failed`,
+  listed, origin kept.
+- Rewrite, `settings.json` is a symlink into a dotfiles repo → written through,
+  named in `--diff` (`_kit_symlinks`).
+- Rewrite, the project runs a kit hook through a wrapper
+  (`bash -c '… .claude/hooks/secret-scan.sh'`) → the path inside is rewritten
+  when the file is the kit's; any other shape is reported by `plan`.
+- Agents, a project adds `code-reviewer.md` after install → `--upgrade` removes
+  the kit's untouched copy with a backup; doctor fails until then.
+- Uninstall strip without python3 → kit entries point at removed hooks.
+  Mitigation: the R1 warning names each.
+- `--diff` over a partial layout → the scratch copy includes both layouts' paths
+  from the map; a partial fixture in `same_counts`.
+- This repo, a session open during S22's commit → its hooks vanish mid-session.
+  Mitigation: the step says to close sessions first; a new session after.
 
 #### Verification
 
-Per step: its failing-first case is red against `main`'s scripts and green on the
-branch — prove red by running the new test section with `main`'s `install.sh` /
-`uninstall.sh` checked out into a scratch dir.
+Per step: its fails-first case is red against `main`'s scripts and green on the
+branch. Release gate after D4, in a clean worktree of `main`:
 
-Release gate, once all three PRs are merged, in a clean `git worktree` of `main`:
-
-1. Typecheck — n/a (bash); `bash -n` on every touched `.sh`.
+1. Typecheck — n/a; `bash -n` on every touched `.sh`; the python heredocs parsed
+   in the tests.
 2. Lint — `npm run check`; `npx --yes markdownlint-cli2 "**/*.md" "#node_modules"`.
-3. Tests — `npm test` (KitBench 158/158, `test-install.sh` ALL PASS,
+3. Tests — `npm test` (KitBench 159, `test-install.sh`, `test-migrate.sh`,
    `test-cli.sh`); CI green on ubuntu and macOS.
-4. Smoke — `P=$(mktemp -d /tmp/ack-r1-smoke.XXXXXX)`, `git init` and a first
-   commit holding the brownfield fixture (own `CLAUDE.md`, a `settings.json` with
-   permissions only, `hooks/my-hook.sh`, `agents/code-reviewer.md`,
-   `skills/my-skill/`, `scripts/deploy.sh`, `tasks/celery.py`, `VERSION` 3.4.0,
-   `reports/.gitignore`):
-   - `bash <kit>/install.sh --local <kit> </dev/null` (no TTY) →
-     `git status --porcelain` shows only untracked (`??`) kit paths and no modified
-     (`M`) entry; the F2 warning is printed; `bash scripts/doctor.sh` exits 1 naming
-     the unregistered hooks.
-   - `--diff` leaves `git status` identical; after `--upgrade` still no `M` entry.
-   - `bash <kit>/uninstall.sh --dry-run`, then `--force` → `git status --porcelain`
-     empty apart from `.hook-state/` and `.kit-backup/`.
-   - An empty greenfield dir: install → doctor passes → uninstall → empty again.
-   - Once through `bash <kit>/bin/cli.sh init` and `uninstall` (the npx path).
-5. Silent failures — fill in and record with `/verification-status`:
+4. Smoke — G1–G3; the R1 fixture in a fresh `git init` project, no TTY: `init` →
+   `git status --porcelain` shows only `??` entries in the closed list; doctor
+   passes; `--diff` / `--upgrade` / `uninstall --force` → clean. A v1.23.0
+   install upgraded through `bin/cli.sh init --upgrade`.
+5. Silent failures, recorded with `/verification-status`:
 
 | Item | Processed | Failed | Skipped (reason) |
 |---|---|---|---|
-| Defects N1, F1, F2, F4, F5, F6, F7, F9, F12, G1, G2: red on main, green on branch | | | |
-| Smoke fixture: kit files installed, recorded, removed | | | |
-| Smoke fixture: project files byte-identical after each stage | | | |
-| Collisions reported by `init` vs collisions planted | | | |
+| Fixtures (a)–(j) migrated, `same_counts` held | | | |
+| Kit hooks registered vs the profile's set (criterion 2) | | | |
+| Kit hook commands rewritten vs found, both settings files | | | |
+| Agent collisions reported vs planted | | | |
+| Project files byte-identical after each stage | | | |
+| Shipped files free of legacy kit paths (`check-kit-paths.sh`) | | | |
+| Maintainer's 5 projects: `--diff` reviewed, upgraded | | | |
 
-#### Open Questions
+#### Could not verify (gated or informational)
 
-- Q1 (blocking PR B) — On `--upgrade`, an unrecorded file at a kit path while a
-  record exists: A) keep ADR-023 A (replace + backup); B) Decision 4 as written —
-  the project's (brings back the freeze; `:809-826` fails); C) B only under a record
-  marked `#complete` (recommended); D) record `init`'s collisions as `#user` lines
-  and protect only those.
-- Q2 (S4) — Uninstall with no record: A) move manifest-listed files to
-  `.kit-backup/` (recommended; the spec's ADR-023 fallback); B) stop and ask for
-  `--upgrade` first.
-- Q3 (F1, the spec's own question) — Where the kit version lives while the project
-  owns `VERSION`: A) nowhere, "unknown" until R2 (the spec's recommendation,
-  recommended); B) a `#version` header in `.kit-baseline` (one more line if Q1 = C).
-- Q4 (S11) — Doctor fails: A) on any unregistered kit hook (breaks deliberate
-  disabling, which install's next steps invite); B) only when `settings.json`
-  isn't the kit's (recommended); C) only when no kit hook is registered at all.
-- Q5 (S8, S10) — Old `--gitignore` blocks: add `.kit-baseline` on a re-run
-  (recommended) or only in new blocks? The block also ignores `VERSION`,
-  `scripts/`, `tasks/` and `.claude/` wholesale, hiding a brownfield project's own
-  new files there: leave `VERSION` out when it's the project's in R1 (recommended)
-  and the rest to R2?
-- Q6 (scope) — Uninstall still removes `CLAUDE.project.md` and the `project/`
-  overlays unless `--keep-project`, while criterion 4 says nothing the user
-  created is removed. R1 (same classifier, small) or R2? Recommended: R2.
-- Q7 (release) — Hold the release-please PR until PR C, so known installs upgrade
-  once (recommended), and title PR B `feat:` so R1 ships as 1.24.0?
+- Agents in a subfolder — documented (sub-agents docs, fetched 2026-09-30:
+  recursive scan, identity from `name`, duplicates load one by filesystem order),
+  not run: gate G1.
+- Hooks run from `$CLAUDE_PROJECT_DIR/.claude/kit/hooks/` — documented as shell
+  commands with that variable expanded, not run: gate G2.
+- A running session while settings are rewritten — not documented as far as
+  checked, not run: gate G3.
+- Claude Code accepting comments or trailing commas in `settings.json` —
+  unknown; the merge and rewrite never write such a file. Informational smoke.
+- The same handler in both settings files runs once — documented (hooks docs),
+  not run.
+- Hook order inside an event — the merge appends groups; no kit hook is assumed to
+  depend on order; not checked against the docs.
+
+#### Spec vs code
+
+- R2.7 (skill paths through a generated Kit Context block): the block cites no
+  moving path and `build-skills.sh` builds 3 of 37 skills — replaced by a scripted
+  rewrite plus `check-kit-paths.sh`.
+- R2.6 (doctor refuses a legacy layout): a legacy install runs its own old doctor
+  and hooks; only the new doctor (after migration, or via `npx … doctor`) can.
+- R2.4 (node → python3): settled as python3 only (ADR-032).
+- R2.3 ("~7 hard-coded sites"): 8 code files plus `package.json` and
+  `CLAUDE.md`; `module.conf` deferred (ADR-034).
+- Spec risk sizes are stale: `install.sh` 2032 lines (spec: 1718),
+  `test-install.sh` 1490 (948), 158 bench scenarios (136).
+- Decision 6 lists `CLAUDE.project.md` as "legacy", but D7 is deferred, so fresh
+  installs still create it; the criterion-7 check allows it.
+- `--diff --version <tag>` runs the tag's installer on the scratch copy while
+  `--upgrade --version <tag>` runs the current one with the tag's tree
+  (`install.sh:439` vs `:1280-1305`) — true today; S14 refuses downgrades across
+  the cut.
+- Mirroring moves this repo's `VERSION`? No: release-please bumps it
+  (`release-please-config.json` extra-file); it stays as the repo's own and the
+  installer reads it as the kit's version.
 
 #### Not Now
 
-- `--upgrade` still runs `chmod +x` over every `scripts/*.sh` and
-  `.claude/hooks/*.sh` (`install.sh:1314`, `:1379`), the project's own included.
-- `uninstall.sh:595` still needs a TTY without `--force`.
-- `npx … doctor` runs the project's own `scripts/doctor.sh` when one collides
-  (`bin/cli.sh:64-70`); it could fall back to the package's.
-- Wiki and HTML modules: a project's own `WIKI.md` or `artifacts/` still go
-  wholesale on uninstall — R2 `module.conf`.
-- Adopting existing files byte-identical to the kit's (a hand-copied kit) instead
-  of reporting them as the project's.
-- `install.sh` and the ownership block each keep a `file_hash`; R2 dedupes them
-  when the scripts move.
-- An existing `CLAUDE.md` still leaves the kit's rules unloaded (F3) — R3.
+- `module.conf` + `CONTRACT.md` — first step of the Playbook module (ADR-034).
+- Installing modules into this repo with `install.sh` (the refusal covers it);
+  the maintainer's local wiki stays as it is.
+- Moving `.hook-state/`, `DESIGN.md` timing, `CLAUDE.project.md` on new installs
+  (D7) — out of the milestone.
+- A configurable `tasks/` path; `npx … doctor` running the package's doctor;
+  widening the Pipefail Grep Guard to `grep -m1` / `head`.
 
 ### Docs sync after 1.23.0 — task audit, gitignored artifacts
 
@@ -677,10 +896,11 @@ kit-internal versioned file at the root, plus adoption. Spec, decisions and
 references: `tasks/specs/2026-09-28-brownfield-install/`.
 
 Four releases, each starting with a plan approved here: R1 fixes in the current
-layout (first: `uninstall` removes the user's own `.claude/` files — N1), R2
-`.claude/kit/` + migration, R3 `CLAUDE.md` managed block, R4 adoption. R2–R4
-are protected changes and need ADRs. The Playbook's `--playbook` module (its
-phase 3) waits for R2, so it's born on `module.conf`.
+layout (shipped to `main` — see Done), R2 `.claude/kit/` + migration (planned,
+ADR-031 to ADR-035 accepted — see In Progress), R3 `CLAUDE.md`
+managed block, R4 adoption. R2–R4 are protected changes and need ADRs. The
+Playbook's `--playbook` module (its phase 3) waits for R2 and starts with
+`module.conf` (ADR-034).
 
 ---
 
@@ -690,7 +910,33 @@ Shipped releases are recorded in `CHANGELOG.md` — release-please generates it
 from Conventional Commits, so this section only carries work that has landed on
 `main` since the last cut.
 
-Nothing yet since 1.23.0 — everything earlier is in `CHANGELOG.md`.
+### R1 — brownfield fixes (shipped to `main` 2026-09-30; release PR #11 open)
+
+Merged as PR #10 (`fix/r1-uninstall-ownership`), PR #12
+(`feat/r1-install-per-file`) and PR #13 (`fix/r1-brownfield-surface`); ships as
+`1.24.0` when release PR #11 merges. Closed N1, F1, F2, F4, F5, F6, F7, F9, F12,
+G1, G2, each with a regression case in `scripts/test-install.sh`, plus KitBench
+s163. Facts later releases build on:
+
+- Ownership is the install record, never the manifest: `ack_owner <dest> <rel>`
+  (`absent` · `kit` · `kit-edited` · `unverified` · `unrecorded` · `no-record`),
+  `ack_record_complete`, `ack_prior_install`, in `scripts/lib/manifest.sh` between
+  `# >>> ack-ownership` markers, copied byte for byte into `uninstall.sh` and
+  `scripts/doctor.sh` (a test fails on drift).
+- ADR-030: an unrecorded file is the project's only under a record marked
+  `#complete`; otherwise ADR-023 A (back up, replace). `install.sh` applies it
+  through `owner_of`, `install_file`, `install_tree` and `upgrade_file`.
+- `VERSION` is the kit's only when recorded (or a pre-R1 kit line listed by the
+  old manifest); a project's own is never written, and the kit version reads
+  "unknown" there until R2.
+- An existing `settings.json` that isn't the kit's gets a loud warning at `init`
+  and a doctor failure (R1 Q4 = B) until R2 merges it.
+- The session audit log lives in `.hook-state/`; `--upgrade` moves an old
+  `reports/` log.
+- Deferred to R2: uninstall still removes overlays and module data by default
+  (R1 Q6); see also Not Now.
+
+Everything earlier is in `CHANGELOG.md`.
 
 ---
 

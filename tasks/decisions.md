@@ -37,6 +37,90 @@ Track important technical decisions here so they don't get lost between sessions
 
 <!-- Add new decisions below this line -->
 
+### ADR-035: The kit's source repo mirrors the installed layout
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: R2 installs kit files under `.claude/kit/` (ADR-031). This repo is both the kit's source and a project that uses the kit: its `CLAUDE.md` is the shipped generic template, its `.claude/settings.json` is the shipped standard settings, and its own sessions run its hooks and skills. Once the template cites `.claude/kit/docs/…` and the settings run `.claude/kit/hooks/…`, this repo's sessions need those paths to exist. The repo also tracks a `.kit-manifest` and carries a local, git-excluded `.kit-baseline` and wiki module, so it already reads as a legacy install. Measured (2026-09-30, tracked files, `CHANGELOG.md` excluded): 72 files move; 259 of 395 tracked files name a moved path, on 1286 lines — among them all 158 KitBench scenarios (310 lines), `test-install.sh` and `test-cli.sh` (179 lines), the installers (101), the 8 `CLAUDE.md` templates (117), 23 skill files (68), 6 kit docs (48), both READMEs (20); 14 of the 259 are `tasks/` history, which is not rewritten.
+- **Options**:
+  - A) Mirror: the source tree takes the installed shape — `.claude/kit/{docs,scripts,hooks,templates,modules}` and `.claude/agents/kit/` — and the installer copies it — Pros: this repo runs exactly what users get; one shape to reason about; `kit_manifest_entries` and the install copy become the same list. / Cons: the largest diff of the milestone; Claude's writes into `.claude/` prompt, so every maintainer edit to a kit doc or script now prompts (hooks and skills already did); `--version <tag older than R2>` has a different source shape.
+  - B) Keep the source layout; the installer maps paths; tracked symlinks let this repo's `CLAUDE.md` resolve installed paths — Pros: no file moves. / Cons: symlinks in the repo; reading through them untested; two shapes.
+  - C) Keep the source layout and generate this repo's `CLAUDE.md` from the template — Pros: no symlinks. / Cons: two `CLAUDE.md` files and a generator; the shipped `settings.json` would need the same treatment.
+- **Decision**: A, the maintainer's choice.
+  - Moves per category, each in the PR that flips that category for installs (the shipped `settings.json` and `CLAUDE.md` are this repo's own, so the source and the installed paths can't change apart): agents → `.claude/agents/kit/`; `agent_docs/*.md` (12) → `.claude/kit/docs/`; the 10 shipped scripts → `.claude/kit/scripts/`; `scaffold/tasks/lessons/_TEMPLATE.md`, `scaffold/tasks/handoff.md`, `.claude/commands.json.example`, `.claude/mcp-allowlist.txt.example` → `.claude/kit/templates/`; `WIKI.md` / `ARTIFACTS.md` → `.claude/kit/modules/{wiki,html}/`; `.claude/hooks/*.sh` (28) + `lib/` (9) → `.claude/kit/hooks/`.
+  - Stays: `VERSION` at the root (release-please's extra-file, the repo's release version, read by the installer as the kit's version); maintainer scripts (`test-*.sh`, `run-bench.sh`, generators, `scripts/lib/`) in `scripts/`; `wiki-module/` and `html-module/` payloads (skills must install to `.claude/skills/<name>/`); `agent_docs/project/` and `.claude/hooks/project/` as this repo's own overlays; `tasks/` minus the two template copies `check-scaffold.sh` compares today.
+  - The tracked `.kit-manifest` becomes `scaffold/kit-manifest.txt` (a reference listing, not a record), so nothing in the tree reads as an install record.
+  - Dogfood loop: `install.sh` (every mode) and `uninstall.sh` refuse to run when the target is a kit source tree (`install.sh`, `uninstall.sh`, `scaffold/tasks/todo.md` and `bench/scenarios/` all present, or the target is the `--local` source itself). The maintainer's local wiki module is left as it is; its git-excluded `.kit-baseline` is deleted by hand when the records move.
+  - Every PR is one squash commit on `main` (ADR-002); inside a branch, a category's `git mv` and all its reference edits are one commit, so each commit passes `npm run check` and `npm test`.
+- **Consequences**:
+  - Largest risk: moving the hooks rewrites the paths of the safety hooks this repo runs on while it is being developed. A missed reference is a hook that isn't found — a non-blocking error — so the maintainer's gates go quiet rather than loud. The hooks PR runs doctor's behavior checks on this repo, the hooks smoke, and does the move outside a running Claude Code session.
+  - `package.json` `files`, `validate.yml` (chmod lines `:109`, `:124`, `:139`), `check-counts.sh`, `check-scaffold.sh`, `sync-manifest.sh`, `gen-strict-settings.sh`, `gen-agents-md.sh`, `gen-skill-docs.sh`, `convert.sh` change with the categories they touch; `scripts/check-kit-paths.sh` fails on a legacy kit path in any shipped file.
+  - Maintainer edits to kit docs and scripts prompt for permission (protected `.claude/` path).
+
+### ADR-034: `module.conf` and `CONTRACT.md` wait for the Playbook module
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: shape.md Decision 12 (delegated) put a per-module `module.conf` + `CONTRACT.md` into R2, because criterion 7 moves `WIKI.md` and `ARTIFACTS.md` out of the root and that touches the module code anyway. Measured: module names and paths are hard-coded in 8 code files (`install.sh` 39 lines, `uninstall.sh` 15, `doctor.sh` 15, the `capabilities` skill 2, `check-counts.sh` 2, `gen-agents-md.sh`, `sync-manifest.sh`, `lib/manifest.sh` 1 each), plus `package.json` and `CLAUDE.md`. Two modules exist; the Playbook module is the next.
+- **Options**:
+  - A) R2 adds `module.conf` + `CONTRACT.md` per module and the 8 files loop over them — Pros: the Playbook is born on it; the module code is edited once. / Cons: a refactor no criterion needs, in the riskiest release.
+  - B) R2 only moves the two schema files into `.claude/kit/modules/<name>/`; `module.conf` becomes step one of the Playbook module — Pros: R2 stays the size its criteria need; the format is designed with its third consumer in view. / Cons: the module sites are edited twice.
+- **Decision**: B, the maintainer's choice.
+- **Consequences**: Reverses shape.md Decision 12. The Playbook plan in `tasks/todo.md` → Up Next starts with `module.conf` + `CONTRACT.md`. R2's module folders are plain paths.
+
+### ADR-033: How an install migrates to layout 2
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: R2 moves the records, `VERSION`, docs, scripts, templates, module schemas, hooks and agents (ADR-031). Every known install is on v1.23.0 or earlier — or on unreleased `main` via `curl | bash` — and release PR #11 (`1.24.0`) stays open until R2 ships, so the migrator meets unmarked v1.23.0 records whose manifests list the project's own files (N1), marked R1 records, and records deleted by hand. shape.md Decision 10 chose no journal; Decision 16 a hard cut. The move lands in four PRs, each live on `main` for `curl | bash` users, so an install may be migrated in several steps. A migration must survive a cut run, be previewed by `--diff` exactly (ADR-021), and never move or lose a file that isn't the kit's (Decision 4, ADR-023, ADR-030).
+- **Options**:
+  - A) Plan per file with the R1 classifier, apply in repeatable phases, read the state back from disk, one map row at a time — Pros: no second record to drift; a re-run is the recovery; the map can grow PR by PR; the plan is testable before any installer calls it. / Cons: every phase must be idempotent; a half-migrated row must be recognisable from disk alone.
+  - B) A TSV journal of steps with statuses — Pros: explicit progress. / Cons: duplicates the disk and can disagree with it after a crash.
+  - C) No migration; every script reads both layouts — Pros: nothing moves. / Cons: rejected by Decision 16.
+- **Decision**: Recommended A:
+  - The record may sit at `.claude/kit/baseline` or `.kit-baseline`; the ownership block looks in the new one first. `ack_layout` reports `none` · `legacy` · `partial` (any legacy row still on disk beside a new record) · `2`.
+  - The map (legacy → new) is derived from the kit tree. Rows: records, `VERSION` → `install.conf`, docs, scripts, templates, module schemas, agents, hooks + `lib/`.
+  - Plan rows: `move` (kit, unchanged), `carry` (kit-edited: the user's copy moves with its old record hash, so the next three-way update still works), `replace` (no record, listed by the old manifest: ADR-023 A with a backup), `yours` (stays), `done`, `resume`, `blocked` (a precondition is missing, the origin stays), `refuse`.
+  - Templates under `tasks/` and `.claude/*.example` were never recorded before R1: they move only while byte-identical to a kit copy; otherwise they are the project's and stay.
+  - Agents follow ADR-031's collision rule: a kit agent whose `name` a project agent already uses anywhere under `.claude/agents/` is not installed and is reported "yours — the kit's version isn't installed".
+  - Hooks rows need the ADR-032 rewrite of every kit hook command in `settings.json` and `settings.local.json`; without a usable python3, or with a file that isn't strict JSON, the hooks rows are `blocked` — the legacy hooks stay, registered, and doctor fails with the reason.
+  - Phases: back up every origin, both records, `settings*.json` and `.gitignore` into one `.kit-backup/<stamp>/` → copy and verify each sha → write the new records (mark per ADR-030) and `install.conf` → rewrite executable references (hook commands, a `statusLine` naming a moved kit script, the `--gitignore` block) → remove verified origins, empty legacy dirs, the legacy records last.
+  - Refuses before any write: the kit's own source tree (ADR-035); a `--version` older than R2 over a layout-2 or partial install; no sha256 tool.
+  - `--diff` runs the same migration on its scratch copy, which also copies `.claude/kit`, `.claude/agents/kit`, `settings.local.json` and `.gitignore`; the preview gains `move` and `remove` rows.
+  - Project files that call kit scripts (a Makefile, CI) are reported, never rewritten. A kit-written `CLAUDE.md` the user edited gets the known kit paths rewritten after a backup.
+  - Whether a running Claude Code session follows rewritten hook paths decides one detail (smoke gate G3 in the plan): if it keeps its start-up copy, legacy hooks are removed only by the next run once no session is live, and the upgrade says to restart sessions.
+- **Consequences**: The ownership block changes (re-copied into `uninstall.sh` and `doctor.sh`). Uninstall reads either layout, so a legacy install can still be removed after the cut. A reverted installer can't un-migrate; recovery is the backup. The report ends `migrated N · carried E · yours Y · replaced R (backed up) · blocked K · failed F`. `test-migrate.sh` needs the v1.23.0 tag in CI (`fetch-depth: 0`).
+
+### ADR-032: The kit's hooks are merged into a project's settings.json by owner, with python3
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: Criterion 2: a project with its own `.claude/settings.json` gets every hook of the profile registered and keeps its entries and permissions. R1 only warns and makes doctor fail. ADR-017 recorded the settings baseline "for the later merge work"; ADR-021 says `--upgrade` never modifies `settings.json`. Claude Code merges hooks across user, project and local settings and runs an identical handler once; it has no include/extends (hooks docs, fetched 2026-09-30). The kit's `settings.json` registers 25 commands in 8 events (strict: 30 in 9) and carries 23 allow / 13 deny permissions, among them `Bash(curl*)` and `Bash(ssh*)`. Moving the hooks (ADR-031) also needs every kit hook command in `settings.json` and `settings.local.json` rewritten.
+- **Options**:
+  - A) Merge hook entries only, by owner, with python3; without a usable python3, the R1 warning and doctor failure — Pros: python3 is already what `--diff`, the attention report and doctor's wiring check need; one implementation. / Cons: a machine with node and no python3 gets the manual path.
+  - B) The same in node, then python3, then manual (spec) — Pros: every `npx` user has node. / Cons: two implementations to keep equal.
+  - C) Register the kit's hooks in `.claude/settings.local.json` — Pros: never writes the project's `settings.json`. / Cons: gitignored, so teammates get no hooks.
+  - D) No merge — Cons: criterion 2 fails.
+- **Decision**: A, the maintainer's choice (the recommendation).
+  - A hook entry is the kit's when its command names a hook path the ownership classifier calls the kit's; bash supplies those facts, python applies the policy. An entry that only resembles one — the same file name under `.claude/hooks/project/`, or a project's own hook the record doesn't list — is never touched.
+  - Merge, per kit hook: absent from `settings.json` and `settings.local.json` → added as a new group with the kit's matcher; equal to its recorded copy → updated; different → kept and reported; stale and unchanged → removed. Per-entry records are `#hook` header lines in the install record.
+  - Rewrite (used by the migration): in the kit's entries only, the legacy hook path is replaced by the new one, in both settings files, keeping every other field the user set; a `statusLine` command naming the kit's `scripts/statusline.sh` likewise. A re-run finds nothing to rewrite and writes nothing.
+  - Never merged: `permissions` and other keys; the strict profile's `ACK_*` `env` keys are added only when absent.
+  - Writes keep the file's indent, non-ASCII and final newline; no write when nothing changes; a backup first; a symlinked file is written through; a file that isn't strict JSON is never written.
+  - Uninstall strips exactly the kit's entries.
+- **Consequences**: Amends ADR-017 (the record gains `#hook` lines) and ADR-021 (`--upgrade` now changes `settings.json` and `settings.local.json`, and `--diff` shows it). Criterion 4's byte identity holds for files the writer reproduces (a detected 2/4/tab indent, `json.dumps` style); other formatting comes back reformatted and is reported. doctor's F2 failure remains the no-python3 safety net.
+
+### ADR-031: Layout 2 — kit files move into `.claude/kit/`, kit agents into `.claude/agents/kit/`
+- **Date**: 2026-09-30
+- **Status**: accepted
+- **Context**: Criterion 7: no kit-internal versioned file at the project root. shape.md Decisions 5–7 put them in `.claude/kit/` and name what leaves the root: `VERSION`, `.kit-manifest`, `.kit-baseline`, `agent_docs/`, `scripts/`, `WIKI.md`, `ARTIFACTS.md`. The spec's R2 list also moves hooks + `lib/`, templates and the kit's agents, so that `.claude/hooks/` and `.claude/agents/` become the project's own. The sub-agents docs (fetched 2026-09-30) say `.claude/agents/` is scanned recursively, identity comes only from `name`, and of two files with one `name` Claude Code loads one "chosen by filesystem read order".
+- **Options**:
+  - A) Move only what criterion 7 names; hooks, agents and templates stay — Pros: the migration rewrites no hook command. / Cons: `.claude/hooks/` and `.claude/agents/` stay shared with the project; a later move is a second migration.
+  - B) The spec's full list — Pros: `.claude/hooks/` and `.claude/agents/` become the project's own; a settings entry and an agent are the kit's by path; one migration. / Cons: every kit hook command in two settings files is rewritten; a running session may keep old paths (unverified); agent names can collide across the tree.
+  - C) B without the agents — Pros: no name collisions. / Cons: the rest of B's cost.
+- **Decision**: B, the maintainer's choice, with these rules:
+  - Layout: `.claude/kit/manifest`, `.claude/kit/baseline`, `.claude/kit/install.conf`, `.claude/kit/docs/`, `.claude/kit/scripts/`, `.claude/kit/hooks/` (+ `lib/`), `.claude/kit/templates/` (`lesson.md`, `handoff.md`, `commands.json.example`, `mcp-allowlist.txt.example`), `.claude/kit/modules/wiki/WIKI.md`, `.claude/kit/modules/html/ARTIFACTS.md`, and `.claude/agents/kit/<name>.md` (wiki's agent included). Skills stay at `.claude/skills/<name>/` (the only place Claude Code finds them). `.claude/hooks/project/` stays the project's overlay.
+  - `install.conf`: `key=value`, read with awk, never sourced — `layout`, `version`, `profile`, `modules`; R3 adds `integration`, R4 `adoption`. `#template`, `#complete` and `#hook` stay record headers. The project's `VERSION` is never read or written again.
+  - Agent names: before placing a kit agent, the installer reads the `name` of every `.md` under `.claude/agents/` (frontmatter `name:`, else the file's stem) that isn't a kit file. A kit agent whose `name` is taken is not installed, not recorded, not listed, and is reported "yours — the kit's version isn't installed", as ADR-030 does for paths. Never both. `--upgrade`, `--diff` and the migrator apply the same rule; a collision that appears after install (the project adds an agent later) makes `--upgrade` back up and remove the kit's untouched copy, or keep an edited one and report; doctor fails on any `name` declared twice under `.claude/agents/`.
+  - Templates are no longer created inside `tasks/` or `.claude/`; the templates and skills cite `.claude/kit/templates/`.
+- **Consequences**: Every kit hook command moves to `"$CLAUDE_PROJECT_DIR"/.claude/kit/hooks/<name>.sh` (25 standard / 30 strict per install, plus any in `settings.local.json`); hooks still find `lib/` beside themselves. `skill-compliance.sh:32-35` (skills relative to its own folder), `scripts/note.sh:44`, `doctor.sh:64,67,270-272,528-533,673`, the BLOCKED messages of 4 hooks, `convert.sh:46`, `gen-skill-docs.sh:28`, `check-counts.sh:48` and the `capabilities` skill (`.claude/agents/*.md`, not recursive) change. `agent_docs/project/` is no longer created; an existing one stays the project's. The `--gitignore` block lists `.claude/kit/` and `.claude/agents/kit/`. Three Claude Code behaviors become release smokes (plan: gates G1–G3).
+
 ### ADR-030: A file with no install-record entry is the project's once the record is marked complete
 - **Date**: 2026-09-30
 - **Status**: accepted
